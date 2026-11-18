@@ -132,6 +132,58 @@ fn smoke_arm_first_frame(cx: &mut gpui::AsyncApp, window: gpui::AnyWindowHandle)
     }
 }
 
+/// Traces the frame GPUI draws after a mount batch, the first one that shows
+/// it: `on_next_frame` callbacks run before that draw, so the callback re-arms
+/// once.
+fn trace_next_content_frame(cx: &mut gpui::AsyncApp, window: gpui::AnyWindowHandle) {
+    if std::env::var_os("RN_GPUI_STARTUP_TRACE").is_none() {
+        return;
+    }
+    let _ = cx.update_window(
+        window,
+        |_root: gpui::AnyView, window: &mut gpui::Window, _cx: &mut gpui::App| {
+            window.on_next_frame(|window, _cx| {
+                window.on_next_frame(|_window, _cx| startup_trace("content frame presented"));
+            });
+        },
+    );
+}
+
+/// Whether `RN_GPUI_MOUNT_TRACE` is set: every app-surface mount batch then logs
+/// when it was applied and when the frame that shows it was presented, and the
+/// test driver logs when it dispatches a click or keystroke, as wall-clock epoch
+/// milliseconds that line up with JS `Date.now()`.
+pub(crate) fn mount_trace_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("RN_GPUI_MOUNT_TRACE").is_some())
+}
+
+pub(crate) fn epoch_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
+}
+
+/// Logs the frame drawn after a mount batch. `on_next_frame` callbacks run just
+/// before that frame's draw and present, on the main thread, so a task spawned
+/// from the callback runs once both are done.
+fn trace_mount_presented(cx: &mut gpui::AsyncApp, window: gpui::AnyWindowHandle, batch: u64) {
+    let _ = cx.update_window(
+        window,
+        move |_root: gpui::AnyView, window: &mut gpui::Window, _cx: &mut gpui::App| {
+            window.on_next_frame(move |_window, cx| {
+                cx.spawn(async move |_| {
+                    eprintln!(
+                        "[mount-trace] presented batch={batch} epoch_ms={:.3}",
+                        epoch_ms()
+                    );
+                })
+                .detach();
+            });
+        },
+    );
+}
+
 /// Milliseconds since the process started, measured once.
 ///
 /// A wall-clock delta from `main` would miss dyld and the C++ static
@@ -2451,6 +2503,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
 
         cx.spawn(async move |cx| {
             let mut smoke_frame_armed = false;
+            let mut startup_mounts_traced = 0u32;
+            let mut mount_batches_traced = 0u64;
             #[cfg(feature = "visual-capture")]
             for (delay_ms, path) in screenshots {
                 let store = store.clone();
@@ -2473,12 +2527,28 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 match event {
                     MainEvent::Mount(batch) => {
                         let surface_id = batch.surface_id;
+                        let ops = batch.ops.len();
                         let started = std::time::Instant::now();
                         store.update(cx, |store, cx| store.apply_batch(batch, cx));
                         let elapsed = started.elapsed().as_secs_f32() * 1000.0;
                         cx.update(|cx| crate::desktop::perf_monitor::record_mount(cx, elapsed));
                         // SAFETY: the C++ function decrements an atomic counter and takes no arguments.
                         unsafe { rn_gpui_mount_batch_applied() };
+                        if surface_id == APP_SURFACE_ID && mount_trace_enabled() {
+                            mount_batches_traced += 1;
+                            eprintln!(
+                                "[mount-trace] applied batch={mount_batches_traced} ops={ops} store_apply_ms={elapsed:.2} epoch_ms={:.3}",
+                                epoch_ms()
+                            );
+                            let window = store.read_with(cx, |store, _| store.window);
+                            trace_mount_presented(cx, window, mount_batches_traced);
+                        }
+                        if surface_id == APP_SURFACE_ID && startup_mounts_traced < 16 {
+                            startup_mounts_traced += 1;
+                            startup_trace(&format!("mount applied ops={ops} store_apply_ms={elapsed:.1}"));
+                            let window = store.read_with(cx, |store, _| store.window);
+                            trace_next_content_frame(cx, window);
+                        }
                         // Smoke mode: an app-surface batch is React content, so
                         // the frame GPUI draws after it is the one a human sees.
                         if smoke && !smoke_frame_armed && surface_id == APP_SURFACE_ID {

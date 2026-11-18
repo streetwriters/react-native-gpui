@@ -97,7 +97,98 @@ struct ShapedParagraph {
 
 struct TextService {
     text_system: Arc<gpui::TextSystem>,
-    cache: Mutex<HashMap<ParagraphKey, Arc<ShapedParagraph>>>,
+    cache: Mutex<ParagraphCache>,
+}
+
+const MAX_CACHED_PARAGRAPHS: usize = 12_288;
+const MAX_CACHED_BYTES: usize = 48 << 20;
+
+struct CacheEntry {
+    shaped: Arc<ShapedParagraph>,
+    used: u64,
+    bytes: usize,
+}
+
+/// Shaped paragraphs bounded by count and by approximate size. Past either
+/// bound the least recently used quarter goes, so a screenful of text that was
+/// shaped off the main thread is still there when it is painted.
+#[derive(Default)]
+struct ParagraphCache {
+    entries: HashMap<ParagraphKey, CacheEntry>,
+    bytes: usize,
+    clock: u64,
+}
+
+impl ParagraphCache {
+    fn get(&mut self, key: &ParagraphKey) -> Option<Arc<ShapedParagraph>> {
+        self.clock += 1;
+        let clock = self.clock;
+        self.entries.get_mut(key).map(|entry| {
+            entry.used = clock;
+            entry.shaped.clone()
+        })
+    }
+
+    fn insert(&mut self, key: ParagraphKey, shaped: Arc<ShapedParagraph>) {
+        self.clock += 1;
+        let bytes = key
+            .fragments
+            .iter()
+            .map(|fragment| fragment.text.len())
+            .sum::<usize>()
+            * 48
+            + shaped.lines.len() * 256
+            + 512;
+        if let Some(previous) = self.entries.insert(
+            key,
+            CacheEntry {
+                shaped,
+                used: self.clock,
+                bytes,
+            },
+        ) {
+            self.bytes -= previous.bytes;
+        }
+        self.bytes += bytes;
+        if self.entries.len() > MAX_CACHED_PARAGRAPHS || self.bytes > MAX_CACHED_BYTES {
+            self.evict();
+        }
+    }
+
+    fn evict(&mut self) {
+        let mut stamps: Vec<u64> = self.entries.values().map(|entry| entry.used).collect();
+        let cut = stamps.len() / 4;
+        let (_, threshold, _) = stamps.select_nth_unstable(cut);
+        let threshold = *threshold;
+        self.entries.retain(|_, entry| entry.used > threshold);
+        self.bytes = self.entries.values().map(|entry| entry.bytes).sum();
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.bytes = 0;
+    }
+}
+
+/// A paragraph shaped off the main thread, kept with the node that paints it.
+/// `width` is the content width it was shaped for.
+#[derive(Clone)]
+pub struct PreparedParagraph {
+    shaped: Arc<ShapedParagraph>,
+    width: f32,
+}
+
+impl PreparedParagraph {
+    pub(crate) fn fits(&self, width: f32) -> bool {
+        (self.width - width).abs() <= 0.05
+    }
+}
+
+/// Takes the paragraph a handle from `rn_gpui_prepare_text` stands for.
+pub(crate) fn take_prepared(handle: u64, width: f32) -> Option<PreparedParagraph> {
+    rn_gpui_sys::take_prepared(handle)
+        .and_then(|any| any.downcast::<ShapedParagraph>().ok())
+        .map(|shaped| PreparedParagraph { shaped, width })
 }
 
 static TEXT_SERVICE: OnceLock<Arc<TextService>> = OnceLock::new();
@@ -116,7 +207,6 @@ fn device_scale() -> f32 {
 }
 static FONT_ALIASES: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
 static FONT_DATA: OnceLock<RwLock<HashMap<String, Arc<Vec<u8>>>>> = OnceLock::new();
-const MAX_CACHED_PARAGRAPHS: usize = 256;
 
 fn font_aliases() -> &'static RwLock<HashMap<String, String>> {
     FONT_ALIASES.get_or_init(|| RwLock::new(HashMap::new()))
@@ -610,7 +700,6 @@ impl TextService {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(&key)
-            .cloned()
         {
             return shaped;
         }
@@ -764,9 +853,6 @@ impl TextService {
             .cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if cache.len() >= MAX_CACHED_PARAGRAPHS {
-            cache.clear();
-        }
         cache.insert(key, shaped.clone());
         shaped
     }
@@ -775,12 +861,24 @@ impl TextService {
 pub fn install_measure_handler(cx: &mut App) {
     let service = Arc::new(TextService {
         text_system: cx.text_system().clone(),
-        cache: Mutex::new(HashMap::new()),
+        cache: Mutex::new(ParagraphCache::default()),
     });
     let _ = TEXT_SERVICE.set(service.clone());
     let lines_service = service.clone();
     let _ = rn_gpui_sys::LINES_HANDLER.set(Box::new(move |paragraph, width| {
         measure_lines(&lines_service, paragraph, width)
+    }));
+    let prepare_service = service.clone();
+    let _ = rn_gpui_sys::PREPARE_HANDLER.set(Box::new(move |paragraph, width| {
+        let shaped = prepare_service.shape(paragraph, width);
+        let scale = device_scale();
+        (
+            shaped.clone() as Arc<dyn std::any::Any + Send + Sync>,
+            MeasureResult {
+                width: shaped.width,
+                height: (shaped.height * scale).round() / scale,
+            },
+        )
     }));
     let _ = rn_gpui_sys::MEASURE_HANDLER.set(Box::new(move |paragraph, width, _height| {
         let shaped = service.shape(paragraph, width);
@@ -916,10 +1014,20 @@ pub(crate) struct ParagraphPainter {
 }
 
 impl ParagraphPainter {
-    pub(crate) fn new(paragraph: &ParagraphFlat, width: f32, height: f32) -> Self {
-        let shaped = TEXT_SERVICE
-            .get()
-            .map(|service| service.shape(paragraph, width))
+    pub(crate) fn new(
+        paragraph: &ParagraphFlat,
+        width: f32,
+        height: f32,
+        prepared: Option<&PreparedParagraph>,
+    ) -> Self {
+        let shaped = prepared
+            .filter(|prepared| prepared.fits(width))
+            .map(|prepared| prepared.shaped.clone())
+            .or_else(|| {
+                TEXT_SERVICE
+                    .get()
+                    .map(|service| service.shape(paragraph, width))
+            })
             .unwrap_or_else(|| {
                 Arc::new(ShapedParagraph {
                     lines: Vec::new(),
@@ -983,8 +1091,13 @@ impl ParagraphPainter {
     }
 }
 
-pub fn paragraph_element(paragraph: &ParagraphFlat, width: f32, height: f32) -> gpui::Canvas<()> {
-    let painter = ParagraphPainter::new(paragraph, width, height);
+pub fn paragraph_element(
+    paragraph: &ParagraphFlat,
+    width: f32,
+    height: f32,
+    prepared: Option<&PreparedParagraph>,
+) -> gpui::Canvas<()> {
+    let painter = ParagraphPainter::new(paragraph, width, height, prepared);
     canvas(
         |_, _, _| (),
         move |bounds, (), window, cx| painter.paint(bounds, window, cx),

@@ -20,6 +20,10 @@
 #include <folly/json.h>
 #include <algorithm>
 #include <cmath>
+#include <mutex>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace rngpui {
@@ -95,12 +99,16 @@ static folly::dynamic optionalUnitJson(const std::optional<ValueUnit>& unit) {
 }
 
 // The gradients, their size, position and repeat, as JSON the renderer reads.
-static std::string backgroundJson(const BaseViewProps& props) {
-  if (props.backgroundImage.empty()) {
+std::string backgroundJson(
+    const std::vector<BackgroundImage>& images,
+    const std::vector<BackgroundSize>& backgroundSizes,
+    const std::vector<BackgroundPosition>& backgroundPositions,
+    const std::vector<BackgroundRepeat>& backgroundRepeats) {
+  if (images.empty()) {
     return {};
   }
   folly::dynamic layers = folly::dynamic::array;
-  for (const auto& image : props.backgroundImage) {
+  for (const auto& image : images) {
     if (const auto* linear = std::get_if<LinearGradient>(&image)) {
       folly::dynamic layer = folly::dynamic::object("kind", "linear");
       if (const auto* angle = std::get_if<Float>(&linear->direction)) {
@@ -163,7 +171,7 @@ static std::string backgroundJson(const BaseViewProps& props) {
     }
   }
   folly::dynamic sizes = folly::dynamic::array;
-  for (const auto& size : props.backgroundSize) {
+  for (const auto& size : backgroundSizes) {
     if (const auto* keyword = std::get_if<BackgroundSizeKeyword>(&size)) {
       sizes.push_back(
           *keyword == BackgroundSizeKeyword::Cover ? "cover" : "contain");
@@ -180,7 +188,7 @@ static std::string backgroundJson(const BaseViewProps& props) {
     }
   }
   folly::dynamic positions = folly::dynamic::array;
-  for (const auto& position : props.backgroundPosition) {
+  for (const auto& position : backgroundPositions) {
     positions.push_back(
         folly::dynamic::object("top", optionalUnitJson(position.top))(
             "left", optionalUnitJson(position.left))(
@@ -200,7 +208,7 @@ static std::string backgroundJson(const BaseViewProps& props) {
     }
   };
   folly::dynamic repeats = folly::dynamic::array;
-  for (const auto& repeat : props.backgroundRepeat) {
+  for (const auto& repeat : backgroundRepeats) {
     repeats.push_back(folly::dynamic::object("x", repeatName(repeat.x))(
         "y", repeatName(repeat.y)));
   }
@@ -278,12 +286,12 @@ TextFragmentFlat flattenTextFragment(
 
 // The `filter` functions in order, as `[[name, amount], ...]`; a `dropShadow`
 // carries `{x, y, blur, color}` in place of the amount.
-static std::string filterJson(const BaseViewProps& props) {
-  if (props.filter.empty()) {
+std::string filterJson(const std::vector<FilterFunction>& filter) {
+  if (filter.empty()) {
     return {};
   }
   folly::dynamic functions = folly::dynamic::array;
-  for (const auto& function : props.filter) {
+  for (const auto& function : filter) {
     if (const auto* amount = std::get_if<Float>(&function.parameters)) {
       functions.push_back(
           folly::dynamic::array(toString(function.type), *amount));
@@ -316,8 +324,12 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
 
   out.opacity = props->opacity;
   out.background_color = argb(props->backgroundColor);
-  out.background_json = backgroundJson(*props);
-  out.filter_json = filterJson(*props);
+  out.background_json = backgroundJson(
+      props->backgroundImage,
+      props->backgroundSize,
+      props->backgroundPosition,
+      props->backgroundRepeat);
+  out.filter_json = filterJson(props->filter);
   out.mix_blend_mode = static_cast<uint8_t>(props->mixBlendMode);
   out.isolate = props->isolation == Isolation::Isolate;
   out.hit_slop = {
@@ -498,16 +510,13 @@ static ViewPropsFlat flattenView(const ShadowView& shadowView) {
   return out;
 }
 
-static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
+ParagraphFlat flattenParagraphText(
+    const AttributedString& attributedString,
+    const ParagraphAttributes& attributes,
+    bool selectable) {
   ParagraphFlat out{};
-  auto state = std::dynamic_pointer_cast<const ConcreteState<ParagraphState>>(
-      shadowView.state);
-  if (!state) {
-    return out;
-  }
-
-  const auto& data = state->getData();
-  const auto& fragments = data.attributedString.getFragments();
+  const auto& fragments = attributedString.getFragments();
+  out.fragments.reserve(fragments.size());
   for (const auto& fragment : fragments) {
     out.fragments.push_back(
         flattenTextFragment(fragment.textAttributes, fragment.string));
@@ -521,13 +530,8 @@ static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
         static_cast<uint8_t>(*fragments.front().textAttributes.alignment);
   }
 
-  const auto& attributes = data.paragraphAttributes;
   applyParagraphExtras(out, fragments, attributes);
-  if (const auto paragraphProps =
-          std::dynamic_pointer_cast<const BaseParagraphProps>(
-              shadowView.props)) {
-    out.selectable = paragraphProps->isSelectable;
-  }
+  out.selectable = selectable;
   out.max_lines = attributes.maximumNumberOfLines;
   // EllipsizeMode is {Clip=0, Head=1, Tail=2, Middle=3} but the GPUI slot
   // encodes {0 tail, 1 head, 2 middle, 3 clip}.
@@ -548,14 +552,49 @@ static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
   return out;
 }
 
-static ParagraphFlat flattenInputText(
-    const AttributedString& attributedString) {
+static ParagraphFlat flattenParagraph(const ShadowView& shadowView) {
+  auto state = std::dynamic_pointer_cast<const ConcreteState<ParagraphState>>(
+      shadowView.state);
+  if (!state) {
+    return ParagraphFlat{};
+  }
+  const auto paragraphProps =
+      std::dynamic_pointer_cast<const BaseParagraphProps>(shadowView.props);
+  const auto& data = state->getData();
+  return flattenParagraphText(
+      data.attributedString,
+      data.paragraphAttributes,
+      paragraphProps && paragraphProps->isSelectable);
+}
+
+ParagraphFlat flattenInputText(const AttributedString& attributedString) {
   ParagraphFlat out{};
   for (const auto& fragment : attributedString.getFragments()) {
     out.fragments.push_back(
         flattenTextFragment(fragment.textAttributes, fragment.string));
   }
   return out;
+}
+
+rust::Str componentNameStr(const char* name) {
+  if (name == nullptr) {
+    return {};
+  }
+  thread_local std::unordered_map<const char*, rust::Str> cache;
+  if (const auto found = cache.find(name); found != cache.end() &&
+      std::string_view(found->second.data(), found->second.size()) == name) {
+    return found->second;
+  }
+  static std::mutex mutex;
+  static std::unordered_set<std::string> names;
+  std::string_view interned;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    interned = *names.emplace(name).first;
+  }
+  const rust::Str str(interned.data(), interned.size());
+  cache.insert_or_assign(name, str);
+  return str;
 }
 
 MountOp buildMountOp(const ShadowViewMutation& mutation) {
@@ -570,8 +609,8 @@ MountOp buildMountOp(const ShadowViewMutation& mutation) {
       : mutation.newChildShadowView;
 
   op.tag = shadowView.tag;
-  op.component = std::string(shadowView.componentName);
-  const std::string componentName(op.component.c_str());
+  op.component = componentNameStr(shadowView.componentName);
+  const std::string componentName(op.component.data(), op.component.size());
   {
     const auto& registered =
         gpuiExtensionHooks().componentProps.find(componentName);

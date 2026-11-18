@@ -165,6 +165,10 @@ pub mod ffi {
         /// An empty single-line input measured for the height of one line of
         /// its font.
         pub measure_empty_line: bool,
+        /// A shaped layout of this paragraph (`rn_gpui_prepare_text`) that the
+        /// op owns, and the content width it was shaped for. 0 for none.
+        pub prepared: u64,
+        pub prepared_width: f32,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -193,10 +197,12 @@ pub mod ffi {
     pub struct MountOp {
         pub kind: MountKind,
         pub tag: i32,
-        pub parent_tag: i32,   // Insert/Remove/Update, else -1
-        pub index: i32,        // Insert/Remove, else -1
-        pub component: String, // "View", "Paragraph", "Image", "ScrollView", ...
-        pub frame: RectF,      // layoutMetrics.frame, relative to parent, DIPs
+        pub parent_tag: i32, // Insert/Remove/Update, else -1
+        pub index: i32,      // Insert/Remove, else -1
+        /// "View", "Paragraph", "Image", "ScrollView", ...: interned by the host
+        /// for the life of the process, so an op does not allocate its name.
+        pub component: &'static str,
+        pub frame: RectF, // layoutMetrics.frame, relative to parent, DIPs
         pub props_changed: bool,
         pub view: ViewPropsFlat,
         pub extension_props_json: String,
@@ -218,6 +224,11 @@ pub mod ffi {
         pub has_paragraph: bool,
         pub paragraph: ParagraphFlat, // filled for "Paragraph" from its state's AttributedString
         pub layout_changed: bool,
+        /// What changed in a node whose view props did not (the op then carries
+        /// no whole view). 1 content insets and display, 2 border widths, 4
+        /// border radii, 8 transform (these four are groups of `view`), 16 the
+        /// paragraph's `selectable`, 32 the extension props.
+        pub layout_patch: u8,
     }
 
     #[derive(Clone, Debug, Default)]
@@ -273,6 +284,15 @@ pub mod ffi {
         pub width: f32,
         pub height: f32,
         pub measured: bool,
+    }
+
+    /// A paragraph shaped by `rn_gpui_prepare_text`: the handle owns a
+    /// reference to the layout until `rn_gpui_release_prepared`.
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct PreparedText {
+        pub handle: u64,
+        pub width: f32,
+        pub height: f32,
     }
 
     #[derive(Clone, Copy, Debug, Default)]
@@ -354,9 +374,19 @@ pub mod ffi {
             max_width: f32,
             max_height: f32,
         ) -> MeasureResult;
+        /// Shapes a paragraph for `max_width` like `rn_gpui_measure_text` and
+        /// returns the layout with it, so the main thread paints it without
+        /// shaping. Thread-safe.
+        fn rn_gpui_prepare_text(p: &ParagraphFlat, max_width: f32) -> PreparedText;
+        /// Another reference to a prepared layout, for an op to carry.
+        fn rn_gpui_retain_prepared(handle: u64) -> u64;
+        fn rn_gpui_release_prepared(handle: u64);
         /// Called on the JS/Fabric thread when a paragraph asks for `onTextLayout`.
         fn rn_gpui_measure_lines(p: &ParagraphFlat, max_width: f32) -> Vec<LineFlat>;
         fn rn_gpui_log(level: i32, message: &str);
+        /// Whether `rn_gpui_log` at `level` is written anywhere, so a caller
+        /// can skip formatting a message nobody reads.
+        fn rn_gpui_log_enabled(level: i32) -> bool;
         fn rn_gpui_on_surface_stopped(surface_id: i32);
     }
 
@@ -681,7 +711,7 @@ use std::sync::OnceLock;
 
 pub use ffi::{
     CornersF, EdgesF, LineFlat, MeasureResult, MountBatch, MountKind, MountOp, ParagraphFlat,
-    RectF, ShadowF, TextFragmentFlat, ViewPropsFlat,
+    PreparedText, RectF, ShadowF, TextFragmentFlat, ViewPropsFlat,
 };
 
 /// Where JavaScript runs with the Loom renderer when `RN_GPUI_JS_THREAD` is not
@@ -708,6 +738,10 @@ pub type AccessibilityFocusHandler = Box<dyn Fn(i32) + Send + Sync>;
 pub static MOUNT_HANDLER: OnceLock<MountHandler> = OnceLock::new();
 pub type LinesHandler = Box<dyn Fn(&ffi::ParagraphFlat, f32) -> Vec<ffi::LineFlat> + Send + Sync>;
 
+pub type PreparedLayout = std::sync::Arc<dyn std::any::Any + Send + Sync>;
+pub type PrepareHandler =
+    Box<dyn Fn(&ffi::ParagraphFlat, f32) -> (PreparedLayout, ffi::MeasureResult) + Send + Sync>;
+pub static PREPARE_HANDLER: OnceLock<PrepareHandler> = OnceLock::new();
 pub static LINES_HANDLER: OnceLock<LinesHandler> = OnceLock::new();
 pub static MEASURE_HANDLER: OnceLock<MeasureHandler> = OnceLock::new();
 pub static SURFACE_STOPPED_HANDLER: OnceLock<SurfaceStoppedHandler> = OnceLock::new();
@@ -969,11 +1003,54 @@ fn rn_gpui_measure_text(
     }
 }
 
+fn rn_gpui_prepare_text(p: &ffi::ParagraphFlat, max_width: f32) -> ffi::PreparedText {
+    let Some(handler) = PREPARE_HANDLER.get() else {
+        return ffi::PreparedText::default();
+    };
+    let (layout, measured) = handler(p, max_width);
+    ffi::PreparedText {
+        handle: Box::into_raw(Box::new(layout)) as u64,
+        width: measured.width,
+        height: measured.height,
+    }
+}
+
+fn rn_gpui_retain_prepared(handle: u64) -> u64 {
+    if handle == 0 {
+        return 0;
+    }
+    // SAFETY: a nonzero handle is a live `Box<PreparedLayout>` this module made.
+    let layout = unsafe { &*(handle as *const PreparedLayout) };
+    Box::into_raw(Box::new(layout.clone())) as u64
+}
+
+fn rn_gpui_release_prepared(handle: u64) {
+    if handle != 0 {
+        // SAFETY: as above, and released once.
+        drop(unsafe { Box::from_raw(handle as *mut PreparedLayout) });
+    }
+}
+
+/// Takes ownership of the layout an op carries, once.
+pub fn take_prepared(handle: u64) -> Option<PreparedLayout> {
+    // SAFETY: as above; the caller does not use `handle` again.
+    (handle != 0).then(|| *unsafe { Box::from_raw(handle as *mut PreparedLayout) })
+}
+
 fn rn_gpui_measure_lines(p: &ffi::ParagraphFlat, max_width: f32) -> Vec<ffi::LineFlat> {
     match LINES_HANDLER.get() {
         Some(handler) => handler(p, max_width),
         None => Vec::new(),
     }
+}
+
+fn rn_gpui_log_enabled(level: i32) -> bool {
+    log::log_enabled!(match level {
+        0 => log::Level::Debug,
+        1 => log::Level::Info,
+        2 => log::Level::Warn,
+        _ => log::Level::Error,
+    })
 }
 
 fn rn_gpui_log(level: i32, message: &str) {

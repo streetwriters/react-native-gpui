@@ -7,6 +7,7 @@
 #include <react/renderer/components/nativeroot/NativeRoot.h>
 #include <react/renderer/components/nativeslot/NativeSlot.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
+#include <react/renderer/components/view/primitives.h>
 #include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/graphics/Size.h>
 #include <react/renderer/imagemanager/ImageResponseObserverCoordinator.h>
@@ -15,6 +16,7 @@
 #include "GpuiImageLoad.h"
 #include "GpuiImageLoader.h"
 #include "GpuiModules.h"
+#include "rn-gpui-sys/src/lib.rs.h"
 
 #include <array>
 #include <atomic>
@@ -22,6 +24,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -79,9 +82,40 @@ class GpuiMountingManager : public IMountingManager {
   void applyMutations(
       SurfaceId surfaceId,
       const ShadowViewMutationList& mutations);
-  /// Records the emitter of a node whose event target was registered after the
-  /// node was mounted.
-  void setEventEmitter(Tag tag, SharedEventEmitter emitter);
+  /// What a host that keeps its own node bookkeeping (the Loom host) builds a
+  /// mount batch with: `beginBatch` for the surface, ops pushed by the caller,
+  /// `observeMutation` for each typed Fabric mutation it described, and
+  /// `submitBatch` to hand the result to the Rust store.
+  MountBatch beginBatch(SurfaceId surfaceId);
+  void submitBatch(SurfaceId surfaceId, MountBatch&& batch);
+  void observeMutation(SurfaceId surfaceId, const ShadowViewMutation& mutation);
+  /// The state a host component or a modal reports sizes into, which Rust
+  /// updates by tag; forgotten with `clearComponentState`.
+  void setComponentState(
+      Tag tag,
+      std::string_view componentName,
+      ComponentHandle componentHandle,
+      const State::Shared& state);
+  void clearComponentState(Tag tag);
+  void notifyFrameChanged(SurfaceId surfaceId, const ShadowView& view);
+  void notifyDeleted(Tag tag);
+
+  /// A node's size and transform origin, which resolve an animated transform.
+  struct AnimatedGeometry {
+    facebook::react::Size size;
+    facebook::react::TransformOrigin transformOrigin;
+  };
+  /// Where a host that keeps its own nodes takes events, wheel events and
+  /// animated geometry from, in place of the emitters and views this manager
+  /// records from Fabric mutations.
+  struct Routes {
+    std::function<void(Tag, const std::string&, folly::dynamic&&)> event;
+    std::function<void(Tag, uint64_t, folly::dynamic&&)> wheel;
+    std::function<std::optional<AnimatedGeometry>(Tag)> geometry;
+  };
+  void setRoutes(Routes routes) {
+    routes_ = std::move(routes);
+  }
   /// Called with true when a React instance comes up and with false when it is
   /// torn down, before a reload.
   void setInstanceHook(std::function<void(bool)> hook) {
@@ -93,6 +127,12 @@ class GpuiMountingManager : public IMountingManager {
       const ShadowView& view,
       const std::string& name,
       const folly::dynamic& args) override;
+  void dispatchCommand(
+      Tag tag,
+      std::string_view componentName,
+      ComponentHandle componentHandle,
+      const std::string& name,
+      const folly::dynamic& args);
   ComponentRegistryFactory getComponentRegistryFactory() override;
   bool hasComponent(const std::string& name) override;
   std::shared_ptr<IImageLoader> getImageLoader() noexcept override {
@@ -113,6 +153,12 @@ class GpuiMountingManager : public IMountingManager {
   void
   dispatchEvent(Tag tag, const std::string& type, folly::dynamic&& payload);
   void dispatchWheel(Tag tag, uint64_t id, folly::dynamic&& payload);
+  /// Delivers a wheel event through `emitter` and reports whether JavaScript
+  /// prevented it.
+  static void dispatchWheelTo(
+      const EventEmitter& emitter,
+      uint64_t id,
+      folly::dynamic&& payload);
   void setScrollOffset(Tag tag, float x, float y);
 
   /// Pushes a size a host component reported into its shadow node's state,
@@ -158,6 +204,7 @@ class GpuiMountingManager : public IMountingManager {
   std::function<std::optional<facebook::react::Size>(SurfaceId)> contentSize_;
   std::shared_ptr<GpuiImageLoader> imageLoader_ =
       std::make_shared<GpuiImageLoader>();
+  Routes routes_;
   std::mutex emittersMutex_;
   std::unordered_map<Tag, ShadowView> animatedViews_;
   std::unordered_map<Tag, SharedEventEmitter>

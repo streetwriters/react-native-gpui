@@ -8,6 +8,7 @@
 #include "rn-gpui-sys/src/lib.rs.h"
 
 #include <cxxreact/MessageQueueThread.h>
+#include <react/threading/MessageQueueThreadImpl.h>
 
 #include <atomic>
 #include <exception>
@@ -20,11 +21,13 @@ namespace rngpui {
 class GpuiMainMessageQueue final : public facebook::react::MessageQueueThread {
  public:
   void runOnQueue(std::function<void()>&& task) override {
-    dispatchMain([state = state_, task = std::move(task)]() mutable {
-      if (!state->quit.load()) {
-        task();
-      }
-    });
+    dispatchMain(
+        [state = state_,
+         task = facebook::react::trackJsTask(std::move(task))]() mutable {
+          if (!state->quit.load()) {
+            task();
+          }
+        });
   }
 
   /// Runs `task` inline on the main thread. From another thread it waits for

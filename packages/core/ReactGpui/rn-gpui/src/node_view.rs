@@ -123,6 +123,9 @@ pub struct RNNodeView {
     pub paragraph: Option<ParagraphFlat>,
     /// A `TextInput`'s own state; other nodes have none.
     text_input: Option<Box<crate::builtins::textinput::input::TextInputState>>,
+    /// The paragraph shaped off the main thread, valid while the paragraph is
+    /// the one it was shaped from.
+    pub(crate) prepared_paragraph: Option<crate::text::PreparedParagraph>,
     pub(crate) text_selection: std::ops::Range<usize>,
     pub(crate) text_selection_anchor: Option<usize>,
     pub(crate) caret_blink_task: Task<()>,
@@ -573,6 +576,14 @@ fn renders_native_surface_for_op(op: &MountOp) -> bool {
 
 static NO_TEXT_INPUT: crate::builtins::textinput::input::TextInputState =
     crate::builtins::textinput::input::TextInputState::EMPTY;
+
+/// The op's paragraph without the handle of its prepared layout, which the node
+/// takes.
+fn paragraph_of(op: &MountOp) -> ParagraphFlat {
+    let mut paragraph = op.paragraph.clone();
+    paragraph.prepared = 0;
+    paragraph
+}
 
 impl RNNodeView {
     /// The node's text input state: its own for a `TextInput`, an empty one
@@ -1342,7 +1353,13 @@ impl RNNodeView {
             state_text_color: None,
             own_state_color: None,
             state_styles: None,
-            paragraph: op.has_paragraph.then(|| op.paragraph.clone()),
+            paragraph: op.has_paragraph.then(|| paragraph_of(op)),
+            prepared_paragraph: op
+                .has_paragraph
+                .then(|| {
+                    crate::text::take_prepared(op.paragraph.prepared, op.paragraph.prepared_width)
+                })
+                .flatten(),
             // `core-private:` the text-input fields come from the module's own
             text_input: (op.component == "TextInput").then(|| {
                 Box::new(crate::builtins::textinput::input::TextInputState {
@@ -1478,6 +1495,36 @@ impl RNNodeView {
         self.view.accessibility_checked = if on { 2 } else { 1 };
     }
 
+    /// Applies the groups of an op's view that layout changed, leaving the rest
+    /// of the node's view as it is.
+    fn patch_layout_view(&mut self, op: &MountOp) {
+        let patch = op.layout_patch;
+        if patch & 1 != 0 {
+            self.view.content_insets = op.view.content_insets;
+            self.view.display_none = op.view.display_none;
+        }
+        if patch & 2 != 0 {
+            self.view.border_widths = op.view.border_widths;
+        }
+        if patch & 4 != 0 {
+            self.view.border_radii = op.view.border_radii;
+        }
+        if patch & 8 != 0 {
+            self.view.transform = op.view.transform;
+            self.view.has_transform = op.view.has_transform;
+            self.view.transform_origin_set = op.view.transform_origin_set;
+        }
+    }
+
+    /// The first frame and layout groups an insert carries for a view created
+    /// before its layout was known.
+    pub fn apply_insert_layout(&mut self, op: &MountOp) {
+        self.frame = op.frame;
+        if op.layout_patch & 15 != 0 {
+            self.patch_layout_view(op);
+        }
+    }
+
     pub fn update_from_op(&mut self, op: &MountOp, app: Option<&mut gpui::App>) {
         let extension_props = crate::extensions::parse_extension_props(&op.extension_props_json);
         self.frame =
@@ -1506,8 +1553,25 @@ impl RNNodeView {
                 crate::builtins::textinput::input::apply_update(self, op);
             }
         }
+        if !op.props_changed && op.layout_patch & 15 != 0 {
+            self.patch_layout_view(op);
+        }
+        if op.layout_patch & 16 != 0 {
+            if let Some(paragraph) = self.paragraph.as_mut() {
+                paragraph.selectable = op.paragraph.selectable;
+            }
+        }
+        if op.layout_patch & 32 != 0 && !op.props_changed {
+            self.extension_props_hash = json_hash(&op.extension_props_json);
+            self.extension_props = shared_extension_props(extension_props.clone());
+            if self.component == "TextInput" {
+                crate::builtins::textinput::input::apply_update(self, op);
+            }
+        }
         if op.has_paragraph {
-            self.paragraph = Some(op.paragraph.clone());
+            self.prepared_paragraph =
+                crate::text::take_prepared(op.paragraph.prepared, op.paragraph.prepared_width);
+            self.paragraph = Some(paragraph_of(op));
             if let (Some(fragment), Some(input)) = (
                 op.paragraph.fragments.first(),
                 self.text_input.as_deref_mut(),
@@ -1532,7 +1596,16 @@ impl RNNodeView {
             }
             self.parts_mut().handle_stale = true;
         }
-        self.update_host_component(op, app);
+        if self.host_component.is_none() && op.host_emitter_handle != 0 {
+            // The component was mounted before its emitter existed.
+            let (component, container, mask_children) =
+                Self::create_host_component(op, &self.host_reports, self.surface_id, app);
+            self.host_component = component;
+            self.host_container = container;
+            self.mask_children = mask_children;
+        } else {
+            self.update_host_component(op, app);
+        }
         if op.props_changed {
             self.extension_props = shared_extension_props(extension_props);
             self.extension_props_hash = json_hash(&op.extension_props_json);
@@ -1561,8 +1634,10 @@ impl RNNodeView {
         else {
             return (None, false, false);
         };
+        let missing_props = props.is_none();
         let (Some(props), Some(emitter)) = (props, emitter) else {
-            if entry.is_registered() {
+            // Without an emitter the node mounts empty; its update brings it.
+            if missing_props && entry.is_registered() {
                 log::error!(
                     "[host-component] {} (tag {}) was created without its props or emitter",
                     entry.name,
@@ -4265,6 +4340,11 @@ impl Render for RNNodeView {
                     window,
                 );
             } else {
+                let prepared = self.prepared_paragraph.as_ref().filter(|_| {
+                    scale_x == 1.0
+                        && scale_y == 1.0
+                        && self.animated_text_color.or(self.state_text_color).is_none()
+                });
                 // Painted by a wrapper rather than a child canvas, so the text costs
                 // no layout node, unless the div does more to its children than the
                 // wrapper can: hide them, fade them, or clip them to rounded corners.
@@ -4281,6 +4361,7 @@ impl Render for RNNodeView {
                     (scale_x, scale_y),
                     frame,
                     overlay,
+                    prepared,
                 );
                 element = with_text;
                 text_overlay = overlay.map(|parts| (parts, clip));
@@ -5074,6 +5155,7 @@ mod host_component_node_tests {
             has_paragraph: false,
             paragraph: ParagraphFlat::default(),
             layout_changed: false,
+            layout_patch: 0,
         }
     }
 

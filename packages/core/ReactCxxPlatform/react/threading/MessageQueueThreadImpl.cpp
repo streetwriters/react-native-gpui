@@ -145,6 +145,10 @@ extern "C" uint64_t rn_gpui_pending_js_tasks() noexcept {
 
 namespace facebook::react {
 
+std::function<void()> trackJsTask(std::function<void()> runnable) {
+  return tracked(std::move(runnable));
+}
+
 void MessageQueueThreadImpl::runOnQueue(std::function<void()>&& runnable) {
   if (!taskDispatchThread_.isRunning()) {
     return;

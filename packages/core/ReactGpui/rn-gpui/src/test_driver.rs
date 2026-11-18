@@ -27,6 +27,7 @@ unsafe extern "C" {
     fn rn_gpui_native_animations_active() -> u64;
     fn rn_gpui_frame_demand() -> u64;
     fn rn_gpui_pending_work() -> u64;
+    fn rn_gpui_rust_promises_in_flight(younger_than_ms: u64) -> u64;
     fn rn_gpui_request_reload();
     fn rn_gpui_reload_in_progress() -> bool;
     /// Counts the React instances created so far. It changes when a reload
@@ -759,6 +760,7 @@ async fn serve_commands(
                                 let dispatched =
                                     cx.update_window(window, move |_root, window, app| {
                                         draw_frame(window, app);
+                                        trace_input_dispatch("input");
                                         window.dispatch_event(
                                             gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
                                                 button,
@@ -1294,6 +1296,7 @@ async fn serve_commands(
                                 key: "a".to_owned(),
                                 key_char: Some(text),
                             };
+                            trace_input_dispatch("input");
                             let handled = window.dispatch_keystroke(keystroke.clone(), app);
                             window.dispatch_event(
                                 gpui::PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke }),
@@ -2078,6 +2081,11 @@ fn idle_status(
         busy.push(
             json!({"source": "animations", "detail": format!("{native_animations} native animation driver(s), {pending_work} pending module work item(s), frame demand {frame_demand}")}),
         );
+    }
+    // SAFETY: the C++ probe takes no pointers and only reads its table.
+    let promises = unsafe { rn_gpui_rust_promises_in_flight(1_000) };
+    if promises > 0 && !ignore.iter().any(|item| item == "modules") {
+        busy.push(json!({"source": "modules", "detail": format!("{promises} Rust module promise call(s) made in the last second and not settled")}));
     }
     if crate::builtins::native_slot::layouts_pending() && !ignore.iter().any(|item| item == "slots")
     {
@@ -3022,5 +3030,16 @@ fn capture_client(
         DeleteDC(memory);
         ReleaseDC(std::ptr::null_mut(), screen);
         result
+    }
+}
+
+/// Logs when an input event reaches the window, for latency measured from the
+/// event rather than from the driver call that sent it (`RN_GPUI_MOUNT_TRACE`).
+fn trace_input_dispatch(kind: &str) {
+    if crate::bootstrap::mount_trace_enabled() {
+        eprintln!(
+            "[mount-trace] {kind} epoch_ms={:.3}",
+            crate::bootstrap::epoch_ms()
+        );
     }
 }

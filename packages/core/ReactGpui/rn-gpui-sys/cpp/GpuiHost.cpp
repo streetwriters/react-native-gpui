@@ -539,6 +539,7 @@ GpuiHost::GpuiHost(
               [task = std::move(task)](facebook::jsi::Runtime&) { task(); });
         }
       });
+  loomHost_->connect();
   LoomHost::registerIn(*contextContainer, loomHost_);
   mountingManager_->setInstanceHook([this](bool up) {
     if (up) {
@@ -1226,7 +1227,7 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
   dispatchPointerTick(*mountingManager_, eventTimestampMs);
 #if LOOM_RENDERER
   // Animation props collected since the last frame reach the screen with it.
-  LoomBinding::flushAnimationFrames();
+  GpuiLoomHost::runOnUIThread([] { LoomBinding::flushAnimationFrames(); });
 #endif
   on_render();
   if (const auto& frame = rngpui::gpuiModuleHooks().frame) {

@@ -741,7 +741,7 @@ if(RN_GPUI_AUTOLINK_LIBRARIES)
   target_link_libraries(rn_gpui_core PUBLIC ${RN_GPUI_AUTOLINK_LIBRARIES})
 endif()
 if(LOOM_RENDERER)
-  target_sources(rn_gpui_core PRIVATE GpuiLoomHost.cpp)
+  target_sources(rn_gpui_core PRIVATE GpuiLoomHost.cpp LoomViewProps.cpp LoomComponentProps.cpp)
 endif()
 
 # The cxx-generated bridge header is located above,
