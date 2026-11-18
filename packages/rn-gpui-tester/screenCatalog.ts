@@ -114,6 +114,12 @@ export const screens = [
     fixture: 'RoundedClipFixture',
   },
   {
+    id: 'opacity-group',
+    title: 'Translucent views with children',
+    group: 'Views',
+    fixture: 'OpacityGroupFixture',
+  },
+  {
     id: 'scroll-pointer',
     title: 'Pointer drag in a ScrollView',
     group: 'Input',

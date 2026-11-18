@@ -827,8 +827,19 @@ pub fn outside_window_pointer() -> impl gpui::IntoElement {
                 window.on_mouse_event(|event: &gpui::MouseUpEvent, phase, window, cx| {
                     if phase != gpui::DispatchPhase::Capture
                         || event.button != gpui::MouseButton::Left
-                        || !outside_window(window, event.position)
                     {
+                        return;
+                    }
+                    // A press that began over native content ends here, before
+                    // the native element (a button's click) can swallow the
+                    // release the node's own listener waits for.
+                    let native_press = active_touch_target(cx)
+                        .and_then(|target| {
+                            store_from(cx)
+                                .and_then(|store| store.read(cx).nodes.get(&target.tag).cloned())
+                        })
+                        .is_some_and(|node| node.read(cx).shares_pointer_with_native(cx));
+                    if !outside_window(window, event.position) && !native_press {
                         return;
                     }
                     if crate::drag_drop::tracking() {

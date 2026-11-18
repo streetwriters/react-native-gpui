@@ -145,7 +145,19 @@ impl NativeComponent for Placeholder {
         let reported = self.reported.clone();
         let fill = props.get("fill").and_then(Value::as_bool).unwrap_or(false);
         let measured = host.clone();
-        let mut element = div().relative().w_full().min_h(px(0.0)).overflow_hidden();
+        if props.get("fit").and_then(Value::as_bool) == Some(true) {
+            self.fit.set(true);
+        }
+        // A slot as wide as its content does not clip it unless asked:
+        // content that overflows its own box shows, as it would in React Native.
+        let clip = props
+            .get("clip")
+            .and_then(Value::as_bool)
+            .unwrap_or(!self.fit.get());
+        let mut element = div().relative().w_full().min_h(px(0.0));
+        if clip {
+            element = element.overflow_hidden();
+        }
         element = if fill {
             element.flex_grow(1.0).flex_shrink(1.0).flex_basis(px(0.0))
         } else {
@@ -184,7 +196,9 @@ impl NativeComponent for Placeholder {
                         let height = f32::from(bounds.size.height);
                         if !fit.get()
                             && width < 0.5
-                            && measured.as_ref().is_some_and(|host| host.read(cx).frame.w > 0.5)
+                            && measured
+                                .as_ref()
+                                .is_some_and(|host| host.read(cx).frame.w > 0.5)
                         {
                             fit.set(true);
                             window.refresh();

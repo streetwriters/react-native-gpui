@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/codegen` are listed here. Each versio
 
 ## Unreleased
 
+- The context of a component in a native tree runs `with_window` in the window the tree is shown in (the new `NativeCall::window`), so a command that needs a window works there too.
 - A component in a native tree reads a scalar prop that is not set as the default its spec declares (`WithDefault<boolean, true>` reads `true`) instead of zero, as a Fabric node does.
 
 ## 0.87.0-alpha.1 - 2026-11-12

@@ -349,6 +349,8 @@ impl FixtureCardSpec for Card {
         };
         let (click, down, up) = (emit("click"), emit("down"), emit("up"));
         let (hover_in, hover_out) = (emit("hover-in"), emit("hover-out"));
+        let right_down = emit("right-down");
+        let drag = emit("drag");
         div()
             .id("fixture-card-chrome")
             .size_full()
@@ -357,6 +359,12 @@ impl FixtureCardSpec for Card {
             .on_click(move |_, _, _| click())
             .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| down())
             .on_mouse_up(gpui::MouseButton::Left, move |_, _, _| up())
+            .on_mouse_down(gpui::MouseButton::Right, move |_, _, _| right_down())
+            .on_mouse_move(move |event, _, _| {
+                if event.pressed_button.is_some() {
+                    drag()
+                }
+            })
             .on_hover(
                 move |hovered, _, _| {
                     if *hovered {
@@ -404,6 +412,14 @@ impl FixtureCardSpec for Card {
         cx.events().chrome_event(OnChromeEvent {
             kind: format!("ping:{label}"),
         });
+    }
+
+    fn ping_window(&mut self, label: String, cx: &mut FixtureCardContext) {
+        if cx.with_window(|_, _| ()).is_some() {
+            cx.events().chrome_event(OnChromeEvent {
+                kind: format!("window:{label}"),
+            });
+        }
     }
 }
 
@@ -526,6 +542,16 @@ impl react_native_gpui::native_tree::NativeComponent for NativeBox {
             element.flex_row()
         } else {
             element.flex_col()
+        };
+        let element = if props.get("align").and_then(serde_json::Value::as_str) == Some("center") {
+            element.items_center()
+        } else {
+            element
+        };
+        let element = if props.get("wrap").and_then(serde_json::Value::as_bool) == Some(true) {
+            element.flex_wrap()
+        } else {
+            element
         };
         let element = if focusable {
             element.track_focus(&self.focus).tab_stop(true)

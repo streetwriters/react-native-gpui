@@ -220,6 +220,11 @@ export const renderScreen: Record<
       require('./components/RoundedClipFixture').default,
       props,
     ),
+  'opacity-group': props =>
+    React.createElement(
+      require('./components/OpacityGroupFixture').default,
+      props,
+    ),
   'scroll-pointer': props =>
     React.createElement(
       require('./components/ScrollPointerFixture').default,

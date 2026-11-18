@@ -984,6 +984,7 @@ describe('Pressable', () => {
 
 describe('Image events', () => {
   let server: http.Server;
+  const methods = new Set<string>();
   const body = (() => {
     const png = new PNG({ width: 400, height: 400 });
     for (let index = 0; index < png.data.length; index += 1) {
@@ -993,7 +994,12 @@ describe('Image events', () => {
   })();
 
   beforeAll(async () => {
-    server = http.createServer((_request, response) => {
+    server = http.createServer((request, response) => {
+      methods.add(request.method ?? '');
+      if (request.method !== 'GET') {
+        response.writeHead(405).end();
+        return;
+      }
       response.writeHead(200, {
         'content-type': 'image/png',
         'content-length': body.length,
@@ -1037,6 +1043,10 @@ describe('Image events', () => {
       .map(Number);
     expect(total).toBe(body.length);
     expect(loaded).toBeGreaterThan(0);
+  });
+
+  test('a remote image is requested with GET', () => {
+    expect([...methods]).toEqual(['GET']);
   });
 
   test('Image.getSize and prefetch resolve for a loadable image', async () => {

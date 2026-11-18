@@ -67,6 +67,8 @@ export type NativeRootHandle = {
   dispatch(event: { id: number; name: string; payload?: unknown }): void;
   /** Size the box to the height of the tree's content. */
   setAutoHeight(): void;
+  /** Size the box to the width of the tree's content. */
+  setAutoWidth(): void;
   unmount(): void;
 };
 
@@ -379,6 +381,9 @@ export function createNativeRoot(
     },
     setAutoHeight() {
       apply?.(rootId, 'auto-height');
+    },
+    setAutoWidth() {
+      apply?.(rootId, 'auto-width');
     },
     unmount() {
       reconciler.updateContainerSync(null, fiberRoot, null, null);

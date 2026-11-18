@@ -49,6 +49,13 @@ test('a container own GPUI element hears hover, press and click over a React chi
   await desktopExpect(app.getByTestId('mixed-presses')).toHaveText('presses:2');
 });
 
+test('a right press nothing in React claims reaches the container own handler', async () => {
+  await app.getByTestId('mixed-press').rightClick();
+  await app.waitForIdle();
+  const events = await text('mixed-chrome');
+  expect(events.split('right-down,').length - 1).toBe(1);
+});
+
 test('works: a TextInput inside a container host component focuses and types', async () => {
   await app.getByTestId('mixed-input').type('abc');
   await desktopExpect(app.getByTestId('mixed-typed')).toHaveText('typed:abc');

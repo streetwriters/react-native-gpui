@@ -15,8 +15,8 @@
 //! children, which it places itself.
 
 use gpui::{
-    AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement,
-    LayoutId, Pixels, Role, Window,
+    AnyElement, AnyWindowHandle, App, Bounds, Element, ElementId, GlobalElementId,
+    InspectorElementId, IntoElement, LayoutId, Pixels, Role, Window,
 };
 use serde_json::{Map, Value};
 use std::cell::RefCell;
@@ -59,9 +59,15 @@ pub struct NativeContext<'a> {
     /// The `App` of the call, for creating entities and reading globals.
     pub app: &'a mut App,
     emitter: NativeEmitter,
+    window: Option<AnyWindowHandle>,
 }
 
 impl NativeContext<'_> {
+    /// The window the tree is shown in, when its owner knows it.
+    pub fn window(&self) -> Option<AnyWindowHandle> {
+        self.window
+    }
+
     /// A sender for this instance's events that outlives the call.
     pub fn emitter(&self) -> NativeEmitter {
         self.emitter.clone()
@@ -79,6 +85,9 @@ pub struct NativeCall {
     pub emitter: NativeEmitter,
     /// The `App` of the call, valid until the call returns.
     pub app: *mut App,
+    /// The window the tree is shown in, for a call made outside any window
+    /// (a command); `None` in `render`, which has its window.
+    pub window: Option<AnyWindowHandle>,
     /// The elements of the instance's children, taken by `children()`.
     pub children: Vec<AnyElement>,
 }
@@ -429,6 +438,7 @@ pub struct NativeTree {
     /// Components of removed instances that said they can be reused, by type.
     pool: HashMap<String, Vec<Box<dyn ErasedComponent>>>,
     renderer: Option<InstanceRenderer>,
+    window: Option<AnyWindowHandle>,
 }
 
 /// Renders one child instance again, on demand: for a component whose content
@@ -462,6 +472,7 @@ impl NativeTree {
             sink: Rc::new(sink),
             pool: HashMap::new(),
             renderer: None,
+            window: None,
         }
     }
 
@@ -469,6 +480,11 @@ impl NativeTree {
     /// [`child_renderers`] available to components.
     pub fn set_instance_renderer(&mut self, renderer: InstanceRenderer) {
         self.renderer = Some(renderer);
+    }
+
+    /// The window the tree is shown in, which commands of its instances run in.
+    pub fn set_window(&mut self, window: Option<AnyWindowHandle>) {
+        self.window = window;
     }
 
     /// The top-level instances, in order.
@@ -520,6 +536,7 @@ impl NativeTree {
                 id,
                 sink: self.sink.clone(),
             },
+            window: self.window,
         }
     }
 

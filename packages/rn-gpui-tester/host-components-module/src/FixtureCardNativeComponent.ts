@@ -46,10 +46,15 @@ export interface FixtureCardCommands {
   ping: (ref: React.ComponentRef<typeof FixtureCard>, label: string) => void;
   /** Reports what the card read from its non-scalar props as `onDetails`. */
   reportDetails: (ref: React.ComponentRef<typeof FixtureCard>) => void;
+  /** Reports `window:<label>` as a chrome event when the command reaches the card's window. */
+  pingWindow: (
+    ref: React.ComponentRef<typeof FixtureCard>,
+    label: string,
+  ) => void;
 }
 
 export const Commands = codegenNativeCommands<FixtureCardCommands>({
-  supportedCommands: ['ping', 'reportDetails'],
+  supportedCommands: ['ping', 'reportDetails', 'pingWindow'],
 });
 
 const FixtureCard: any = null;
