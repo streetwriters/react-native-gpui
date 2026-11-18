@@ -415,6 +415,24 @@ pub mod ffi {
         /// Pushes a size a host component measured into its shadow node's state,
         /// which is what Yoga reads, and asks for the commit that re-measures.
         fn reportHostComponentSize(tag: i32, width: f32, height: f32);
+        /// Pushes the size a native root laid its tree out at into its shadow
+        /// node's state, where it becomes Yoga's size for the box.
+        fn reportNativeRootSize(
+            tag: i32,
+            height: f32,
+            has_width: bool,
+            width: f32,
+            min_width: f32,
+        ) -> bool;
+        /// Pushes the size the native layout gave a slot's placeholder into the
+        /// slot's shadow node's state, where it becomes the content's size.
+        fn reportNativeSlotSize(
+            tag: i32,
+            has_width: bool,
+            width: f32,
+            has_height: bool,
+            height: f32,
+        ) -> bool;
         /// Pushes the insets a container reported for its chrome into its shadow
         /// node's state, where they become Yoga padding around the children.
         fn reportHostComponentInsets(tag: i32, top: f32, right: f32, bottom: f32, left: f32);

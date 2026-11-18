@@ -52,6 +52,34 @@ folly::dynamic NativeSlotProps::getDiffProps(const Props* prevProps) const {
 }
 #endif
 
+void NativeSlotShadowNode::applySlotSize() {
+  const auto& data = getStateData();
+  const auto& base = getConcreteProps().yogaStyle;
+  auto style = yogaNode_.style();
+  const auto open = [&](yoga::Dimension axis) {
+    const auto size = base.dimension(axis);
+    return size.isUndefined() || size.isAuto();
+  };
+  if (data.hasWidth && open(yoga::Dimension::Width)) {
+    style.setDimension(
+        yoga::Dimension::Width, yoga::StyleSizeLength::points(data.width));
+  }
+  if (data.hasHeight && open(yoga::Dimension::Height)) {
+    style.setDimension(
+        yoga::Dimension::Height, yoga::StyleSizeLength::points(data.height));
+  }
+  if (style != yogaNode_.style()) {
+    ensureUnsealed();
+    yogaNode_.setStyle(style);
+    yogaNode_.setDirty(true);
+  }
+}
+
+void NativeSlotComponentDescriptor::adopt(ShadowNode& shadowNode) const {
+  static_cast<NativeSlotShadowNode&>(shadowNode).applySlotSize();
+  ConcreteComponentDescriptor::adopt(shadowNode);
+}
+
 #if RN_DEBUG_STRING_CONVERTIBLE
 SharedDebugStringConvertibleList NativeSlotProps::getDebugProps() const {
   return ViewProps::getDebugProps() + SharedDebugStringConvertibleList{

@@ -304,7 +304,7 @@ impl NativeComponent for VirtualList {
 impl Drop for VirtualList {
     fn drop(&mut self) {
         let id = self.id;
-        LISTS.with(|lists| lists.borrow_mut().remove(&id));
+        let _ = LISTS.try_with(|lists| lists.borrow_mut().remove(&id));
     }
 }
 

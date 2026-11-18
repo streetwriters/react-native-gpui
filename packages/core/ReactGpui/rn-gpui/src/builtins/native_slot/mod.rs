@@ -5,9 +5,9 @@
 //! to the tree, in React Native's, it is a `DesktopNativeSlot` node that holds
 //! the children. The placeholder embeds that node, so the node is painted,
 //! clipped and hit where the placeholder is, as part of the tree's element
-//! tree. Layout goes the other way: the placeholder reports its width to
-//! JavaScript, which gives it to the node, and the node's height becomes the
-//! placeholder's.
+//! tree. Layout goes the other way: the placeholder puts its width into the
+//! node's Fabric state, which Yoga lays the node out at without a React render,
+//! and the node's height becomes the placeholder's.
 //!
 //! Where React Native thinks the node is (`measure`, the test driver, the
 //! accessibility tree) is corrected by `slot_shift`, a scroll link the placeholder
@@ -19,12 +19,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{canvas, div, point, prelude::*, px, AnyElement, App, Window};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
 use crate::extensions::{register_component_renderer, ComponentNode, ComponentRenderer};
-use crate::native_tree::{
-    register_native_component, NativeComponent, NativeContext, NativeEmitter,
-};
+use crate::native_tree::{register_native_component, NativeComponent, NativeContext};
 
 pub const COMPONENT: &str = "DesktopNativeSlot";
 
@@ -56,6 +54,10 @@ pub(crate) fn hosts_of(root: u32) -> Vec<(i64, i32)> {
             .map(|((_, slot), tag)| (*slot, *tag))
             .collect()
     })
+}
+
+fn slot_tag(root: u32, slot: i64) -> Option<i32> {
+    HOSTS.with(|hosts| hosts.borrow().get(&(root, slot)).copied())
 }
 
 struct NativeSlotRenderer;
@@ -94,18 +96,7 @@ pub(crate) fn layouts_pending() -> bool {
     })
 }
 
-/// Whether a slot of tree `root` is still waiting for its content.
-pub(crate) fn waiting_in(root: u32) -> bool {
-    WAITING.with(|waiting| {
-        waiting
-            .borrow()
-            .values()
-            .any(|(tree, since)| *tree == root && since.elapsed() < WAIT_LIMIT)
-    })
-}
-
 struct Placeholder {
-    emitter: NativeEmitter,
     reported: Rc<Cell<(f32, f32)>>,
     shown: Rc<Cell<bool>>,
     /// The tree's layout gave the slot no width (its parent is as wide as its
@@ -117,7 +108,7 @@ struct Placeholder {
 impl Drop for Placeholder {
     fn drop(&mut self) {
         let key = self.key;
-        WAITING.with(|waiting| waiting.borrow_mut().remove(&key));
+        let _ = WAITING.try_with(|waiting| waiting.borrow_mut().remove(&key));
     }
 }
 
@@ -126,9 +117,8 @@ fn slot_id(props: &Map<String, Value>) -> i64 {
 }
 
 impl NativeComponent for Placeholder {
-    fn create(_props: &Map<String, Value>, cx: &mut NativeContext) -> Self {
+    fn create(_props: &Map<String, Value>, _cx: &mut NativeContext) -> Self {
         Self {
-            emitter: cx.emitter(),
             reported: Rc::new(Cell::new((-1.0, -1.0))),
             shown: Rc::new(Cell::new(false)),
             fit: Rc::new(Cell::new(false)),
@@ -156,7 +146,7 @@ impl NativeComponent for Placeholder {
             .as_ref()
             .map(|host| host.read(cx).frame.h)
             .unwrap_or(0.0);
-        let emitter = self.emitter.clone();
+        let slot_tag = slot_tag(super::native_root::current_root(), slot_id(props));
         let reported = self.reported.clone();
         let fill = props.get("fill").and_then(Value::as_bool).unwrap_or(false);
         let measured = host.clone();
@@ -245,10 +235,17 @@ impl NativeComponent for Placeholder {
                         }
                         let (last_width, last_height) = reported.get();
                         let height_matters = fill && (last_height - height).abs() > 0.01;
-                        if (last_width - width).abs() > 0.01 || height_matters {
-                            reported.set((width, height));
-                            emitter
-                                .emit("onSlotLayout", json!({ "width": width, "height": height }));
+                        let changed = (last_width - width).abs() > 0.01 || height_matters;
+                        if let Some(tag) = slot_tag.filter(|_| changed) {
+                            if rn_gpui_sys::ffi::reportNativeSlotSize(
+                                tag,
+                                !fit.get(),
+                                width,
+                                fill,
+                                height,
+                            ) {
+                                reported.set((width, height));
+                            }
                         }
                     },
                     |_, _, _, _| {},

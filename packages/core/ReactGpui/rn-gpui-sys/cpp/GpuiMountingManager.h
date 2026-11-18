@@ -4,6 +4,8 @@
 #include <react/io/IImageLoader.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/modal/ModalHostViewState.h>
+#include <react/renderer/components/nativeroot/NativeRoot.h>
+#include <react/renderer/components/nativeslot/NativeSlot.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/graphics/Size.h>
@@ -111,6 +113,23 @@ class GpuiMountingManager : public IMountingManager {
       float right,
       float bottom,
       float left);
+  /// Pushes the size a native root measured into its shadow node's state, where
+  /// `adopt` applies it to Yoga's style. A size the state already holds is
+  /// dropped here. Whether the node is known.
+  bool setNativeRootSize(
+      Tag tag,
+      float height,
+      bool hasWidth,
+      float width,
+      float minWidth);
+  /// Pushes the size a slot's placeholder was laid out at into the slot's
+  /// shadow node's state. Whether the node is known.
+  bool setNativeSlotSize(
+      Tag tag,
+      bool hasWidth,
+      float width,
+      bool hasHeight,
+      float height);
   void setWindowSize(float width, float height);
   void setWindowTopInset(float top);
   void setAccessibilityFocusedView(Tag viewTag) override;
@@ -135,6 +154,10 @@ class GpuiMountingManager : public IMountingManager {
       Tag,
       std::shared_ptr<const ConcreteState<GpuiHostStateData>>>
       hostStates_;
+  std::unordered_map<Tag, std::shared_ptr<const ConcreteState<NativeRootState>>>
+      nativeRootStates_;
+  std::unordered_map<Tag, std::shared_ptr<const ConcreteState<NativeSlotState>>>
+      nativeSlotStates_;
   struct ImageObservation {
     std::shared_ptr<const ImageResponseObserverCoordinator> coordinator;
     std::shared_ptr<const ImageResponseObserver> observer;

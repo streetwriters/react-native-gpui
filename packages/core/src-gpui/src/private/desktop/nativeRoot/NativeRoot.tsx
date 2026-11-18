@@ -37,6 +37,85 @@ export type NativeRootProps = ViewProps & {
   fitWidth?: boolean;
 };
 
+type RememberedSize = { height: number; width?: number; minWidth?: number };
+
+const MAX_REMEMBERED = 512;
+const MAX_SIGNATURE_NODES = 256;
+const rememberedSizes = new Map<string, RememberedSize>();
+
+function remember(key: string, size: RememberedSize) {
+  rememberedSizes.delete(key);
+  rememberedSizes.set(key, size);
+  if (rememberedSizes.size > MAX_REMEMBERED) {
+    rememberedSizes.delete(rememberedSizes.keys().next().value as string);
+  }
+}
+
+const typeIds = new WeakMap<object, number>();
+let nextTypeId = 1;
+
+/**
+ * A hash of the elements and their primitive props, which is what decides the
+ * size of a tree that renders the same each time. Null for a tree too large to
+ * be worth remembering.
+ */
+function childrenSignature(
+  children: React.ReactNode,
+  fitWidth: boolean,
+  width: unknown,
+): string | null {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  let nodes = 0;
+  const mix = (text: string) => {
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      a = Math.imul(a ^ code, 0x01000193);
+      b = Math.imul(b + code, 0x85ebca6b) ^ (b >>> 13);
+    }
+    a = Math.imul(a ^ 0xff, 0x01000193);
+  };
+  const walk = (node: React.ReactNode): boolean => {
+    if (++nodes > MAX_SIGNATURE_NODES) {
+      return false;
+    }
+    if (Array.isArray(node)) {
+      mix('[');
+      return node.every(walk);
+    }
+    if (!React.isValidElement(node)) {
+      mix(`${typeof node}:${String(node)}`);
+      return true;
+    }
+    const type = node.type as string | object;
+    if (typeof type === 'string') {
+      mix(type);
+    } else {
+      let id = typeIds.get(type);
+      if (id == null) {
+        id = nextTypeId++;
+        typeIds.set(type, id);
+      }
+      mix(`#${id}`);
+    }
+    const { children: inner, ...props } = node.props as Record<string, unknown>;
+    for (const name in props) {
+      const value = props[name];
+      if (
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean'
+      ) {
+        mix(`${name}=${value}`);
+      }
+    }
+    mix('>');
+    return walk(inner as React.ReactNode);
+  };
+  mix(`${fitWidth}:${typeof width === 'number' ? width : ''}`);
+  return walk(children) ? `${a >>> 0}.${b >>> 0}` : null;
+}
+
 let nextRootId = 1 + Math.floor(Math.random() * 0x3fffff) * 256;
 
 function NativeRootInner({
@@ -56,11 +135,18 @@ function NativeRootInner({
   const flat = StyleSheet.flatten(viewProps.style);
   const autoHeight = flat?.height == null;
   const autoWidth = fitWidth === true && flat?.width == null;
-  const [contentHeight, setContentHeight] = React.useState<number | null>(null);
-  const [contentWidth, setContentWidth] = React.useState<{
-    width: number;
-    minWidth: number;
-  } | null>(null);
+  const flatWidth = flat?.width;
+  const sizeKey = React.useMemo(
+    () =>
+      autoHeight
+        ? childrenSignature(children, fitWidth === true, flatWidth)
+        : null,
+    [autoHeight, children, fitWidth, flatWidth],
+  );
+  const key = React.useRef<string | null>(null);
+  const [hint] = React.useState(() =>
+    sizeKey != null ? rememberedSizes.get(sizeKey) : undefined,
+  );
 
   React.useLayoutEffect(() => {
     handle.current = createNativeRoot(rootId, error => setFailure({ error }));
@@ -90,9 +176,6 @@ function NativeRootInner({
           if (
             current != null &&
             current.children === content.children &&
-            current.width === content.width &&
-            current.height === content.height &&
-            current.fill === content.fill &&
             current.style === content.style
           ) {
             return previous;
@@ -116,6 +199,7 @@ function NativeRootInner({
   }, [rootId]);
 
   React.useLayoutEffect(() => {
+    key.current = sizeKey;
     handle.current?.render(
       <FiberProvider>
         <Bridge>
@@ -131,17 +215,8 @@ function NativeRootInner({
     }) => {
       const { id, name, payload } = event.nativeEvent;
       if (id === 0 && name === '__contentSize') {
-        const size = payload as {
-          width?: number;
-          minWidth?: number;
-          height: number;
-        };
-        setContentHeight(size.height);
-        if (size.width != null) {
-          setContentWidth({
-            width: size.width,
-            minWidth: size.minWidth ?? size.width,
-          });
+        if (key.current != null) {
+          remember(key.current, payload as RememberedSize);
         }
         return;
       }
@@ -153,21 +228,10 @@ function NativeRootInner({
   return (
     <DesktopNativeRootNativeComponent
       {...viewProps}
-      style={[
-        autoWidth && contentWidth != null
-          ? {
-              flexShrink: 1,
-              maxWidth: '100%',
-              minWidth: contentWidth.minWidth,
-            }
-          : null,
-        viewProps.style,
-        autoHeight && contentHeight != null ? { height: contentHeight } : null,
-        autoWidth && contentWidth != null
-          ? { width: contentWidth.width }
-          : null,
-      ]}
       rootId={rootId}
+      hintHeight={hint?.height}
+      hintWidth={autoWidth ? hint?.width : undefined}
+      hintMinWidth={autoWidth ? hint?.minWidth : undefined}
       onNativeEvent={onNativeEvent}
     >
       {Array.from(slots, ([slotId, content]) => (
@@ -175,14 +239,7 @@ function NativeRootInner({
           key={slotId}
           rootId={rootId}
           slotId={slotId}
-          style={[
-            { position: 'absolute', left: 0, top: 0 },
-            content.width > 0 ? { width: content.width } : null,
-            content.fill && content.height > 0
-              ? { height: content.height }
-              : null,
-            content.style,
-          ]}
+          style={[{ position: 'absolute', left: 0, top: 0 }, content.style]}
         >
           {content.children}
         </DesktopNativeSlotNativeComponent>

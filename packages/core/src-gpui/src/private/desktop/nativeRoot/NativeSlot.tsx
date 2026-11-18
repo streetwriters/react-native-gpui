@@ -65,31 +65,15 @@ export function NativeSlot({
   }
   const Bridge = useContextBridge();
   const [slotId] = React.useState(() => api.allocate());
-  const [size, setSize] = React.useState({ width: 0, height: 0 });
 
   React.useLayoutEffect(() => {
     api.set(slotId, {
       children: <Bridge>{children}</Bridge>,
-      width: fit ? 0 : size.width,
-      height: size.height,
-      fill,
       style,
     });
   });
 
   React.useLayoutEffect(() => () => api.remove(slotId), [api, slotId]);
-
-  const onSlotLayout = React.useCallback((layout: unknown) => {
-    const next = layout as { width?: number; height?: number } | null;
-    if (typeof next?.width === 'number' && typeof next.height === 'number') {
-      const { width, height } = next;
-      setSize(previous =>
-        previous.width === width && previous.height === height
-          ? previous
-          : { width, height },
-      );
-    }
-  }, []);
 
   return React.createElement('NativeSlot', {
     slotId,
@@ -97,6 +81,5 @@ export function NativeSlot({
     fit,
     clip,
     testID,
-    onSlotLayout,
   });
 }

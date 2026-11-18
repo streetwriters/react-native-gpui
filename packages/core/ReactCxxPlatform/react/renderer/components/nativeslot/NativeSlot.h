@@ -36,11 +36,32 @@ class NativeSlotProps final : public ViewProps {
 #endif
 };
 
-using NativeSlotShadowNode = ConcreteViewShadowNode<
-    NativeSlotComponentName,
-    NativeSlotProps,
-    ViewEventEmitter>;
-using NativeSlotComponentDescriptor =
-    ConcreteComponentDescriptor<NativeSlotShadowNode>;
+/// The size the native layout gave the slot's placeholder. The content takes
+/// its width, and with `fill` its height, where the style leaves them open.
+struct NativeSlotState {
+  float width{0};
+  bool hasWidth{false};
+  float height{0};
+  bool hasHeight{false};
+};
+
+class NativeSlotShadowNode final : public ConcreteViewShadowNode<
+                                       NativeSlotComponentName,
+                                       NativeSlotProps,
+                                       ViewEventEmitter,
+                                       NativeSlotState> {
+ public:
+  using ConcreteViewShadowNode::ConcreteViewShadowNode;
+
+  void applySlotSize();
+};
+
+class NativeSlotComponentDescriptor final
+    : public ConcreteComponentDescriptor<NativeSlotShadowNode> {
+ public:
+  using ConcreteComponentDescriptor::ConcreteComponentDescriptor;
+
+  void adopt(ShadowNode& shadowNode) const override;
+};
 
 } // namespace facebook::react
