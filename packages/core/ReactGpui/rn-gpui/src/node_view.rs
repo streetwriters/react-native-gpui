@@ -5555,6 +5555,9 @@ impl RNNodeView {
                     let Some(node) = down_node.upgrade() else {
                         return;
                     };
+                    if node.read(cx).shares_pointer_with_native(cx) {
+                        crate::events::mark_native_press();
+                    }
                     let (target, is_text_input, selectable_text) = {
                         let this = node.read(cx);
                         (
@@ -5608,7 +5611,7 @@ impl RNNodeView {
                     crate::drag_drop::press(cx, &target, event.position);
                     if node.read(cx).shares_pointer_with_native(cx) {
                         crate::events::claim_press();
-                    } else {
+                    } else if !crate::events::native_press() {
                         cx.stop_propagation();
                     }
                 },
@@ -5733,11 +5736,12 @@ impl RNNodeView {
                     let active_target = crate::events::active_touch_target(cx);
                     // A press that began over native content keeps its moves
                     // reaching the native elements (a text selection drag).
-                    let native_press = active_target.as_ref().is_some_and(|target| {
-                        crate::store::store_from(cx)
-                            .and_then(|store| store.read(cx).nodes.get(&target.tag).cloned())
-                            .is_some_and(|node| node.read(cx).shares_pointer_with_native(cx))
-                    });
+                    let native_press = crate::events::native_press()
+                        || active_target.as_ref().is_some_and(|target| {
+                            crate::store::store_from(cx)
+                                .and_then(|store| store.read(cx).nodes.get(&target.tag).cloned())
+                                .is_some_and(|node| node.read(cx).shares_pointer_with_native(cx))
+                        });
                     if (hit_target.is_some() || active_target.is_some())
                         && !(native_press && event.pressed_button.is_some())
                     {
@@ -5788,7 +5792,7 @@ impl RNNodeView {
                     if active_target.is_some() || is_touch_target {
                         if node.read(cx).in_host_container(cx) {
                             crate::events::claim_press();
-                        } else {
+                        } else if !crate::events::native_press() {
                             cx.stop_propagation();
                         }
                     }

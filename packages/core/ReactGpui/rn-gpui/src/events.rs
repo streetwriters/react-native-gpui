@@ -37,6 +37,28 @@ pub(crate) fn begin_press_dispatch() {
 
 thread_local! {
     static PRESS_CLAIMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static NATIVE_PRESS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Clears the marks before a press reaches any node, including whether the
+/// press is over native content, which lasts until the next press so its moves
+/// and its release keep reaching the native elements.
+pub(crate) fn begin_press() {
+    begin_press_dispatch();
+    NATIVE_PRESS.with(|native| native.set(false));
+}
+
+/// Marks the press as over native content (a native root's tree), whose GPUI
+/// elements handle it too: a text selection that starts with a drag, or a
+/// click that clears one. React Native nodes it bubbles to still get their
+/// touch, but none stops it from reaching those elements.
+pub(crate) fn mark_native_press() {
+    NATIVE_PRESS.with(|native| native.set(true));
+}
+
+/// Whether the current press began over native content.
+pub(crate) fn native_press() -> bool {
+    NATIVE_PRESS.with(std::cell::Cell::get)
 }
 
 /// Marks the press as taken by a React Native node, for a node whose press must
