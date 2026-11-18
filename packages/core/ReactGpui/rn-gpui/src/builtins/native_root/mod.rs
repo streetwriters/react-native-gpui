@@ -55,6 +55,48 @@ thread_local! {
     static SLOT_HOSTS: RefCell<HashMap<i64, gpui::Entity<crate::node_view::RNNodeView>>> =
         RefCell::new(HashMap::new());
     static TREES: RefCell<HashMap<u32, RootState>> = RefCell::new(HashMap::new());
+    /// New trees that have not settled yet: their box does not have the
+    /// tree's size, or a slot waits for its content.
+    static UNSETTLED: RefCell<HashMap<u32, Settling>> = RefCell::new(HashMap::new());
+    static SEQUENCE: Cell<u64> = const { Cell::new(0) };
+    /// Every tree seen, gone ones too: a box rendered once more as its tree is
+    /// destroyed is not a new tree. Ids are never reused.
+    static STARTED: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
+    /// The nodes that rendered before their tree arrived, so the tree's first
+    /// batch repaints them.
+    static EARLY_TAGS: RefCell<HashMap<u32, i32>> = RefCell::new(HashMap::new());
+    static HOLD: Rc<dyn Fn() -> bool> = Rc::new(holding);
+}
+
+/// How long a window holds its last frame for new trees to settle.
+const SETTLE_LIMIT: std::time::Duration = std::time::Duration::from_millis(250);
+
+struct Settling {
+    since: std::time::Instant,
+    /// When the tree was last rendered and last painted, in one sequence.
+    rendered: Option<u64>,
+    painted: Option<u64>,
+}
+
+fn next_sequence() -> u64 {
+    SEQUENCE.with(|sequence| {
+        sequence.set(sequence.get() + 1);
+        sequence.get()
+    })
+}
+
+/// Whether a window should keep showing its last frame: a new tree is still
+/// settling, so the frame would show it, and what is laid out around it, at
+/// sizes about to change. A tree rendered but not painted is out of view.
+fn holding() -> bool {
+    UNSETTLED.with(|unsettled| {
+        let mut unsettled = unsettled.borrow_mut();
+        unsettled.retain(|_, settling| settling.since.elapsed() < SETTLE_LIMIT);
+        unsettled.values().any(|settling| match settling.rendered {
+            None => true,
+            Some(rendered) => settling.painted.is_some_and(|painted| painted > rendered),
+        })
+    })
 }
 
 fn root_id(node: &ComponentNode) -> u32 {
@@ -71,6 +113,8 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
         TREES.with(|trees| {
             trees.borrow_mut().remove(&root);
         });
+        UNSETTLED.with(|unsettled| unsettled.borrow_mut().remove(&root));
+        EARLY_TAGS.with(|tags| tags.borrow_mut().remove(&root));
         return;
     }
     if payload == "auto-height" || payload == "auto-width" {
@@ -125,11 +169,33 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
     }
 }
 
+/// Notes a tree that has just appeared, the first time its box renders or its
+/// first batch arrives, whichever comes first.
+fn start_settling(root: u32) -> bool {
+    let first = STARTED.with(|started| started.borrow_mut().insert(root));
+    if first {
+        UNSETTLED.with(|unsettled| {
+            unsettled.borrow_mut().insert(
+                root,
+                Settling {
+                    since: std::time::Instant::now(),
+                    rendered: None,
+                    painted: None,
+                },
+            );
+        });
+    }
+    first
+}
+
 fn new_state(root: u32, cx: &App) -> RootState {
+    start_settling(root);
     let host: Host = crate::store::store_from(cx)
         .map(|store| store.read(cx).host.clone())
         .expect("the store exists while a tree is applied to");
-    let tag = Rc::new(Cell::new(None));
+    let tag = Rc::new(Cell::new(
+        EARLY_TAGS.with(|tags| tags.borrow_mut().remove(&root)),
+    ));
     let sink_tag = tag.clone();
     let mut tree = NativeTree::new(move |event| {
         if let Some(tag) = sink_tag.get() {
@@ -237,10 +303,29 @@ impl ComponentRenderer for NativeRootRenderer {
         cx: &mut App,
     ) -> Option<AnyElement> {
         let root = root_id(node);
+        // A box whose tree has not arrived yet holds the window too: the frame
+        // would show the page around it at sizes about to change.
+        if root != 0 && TREES.with(|trees| !trees.borrow().contains_key(&root)) {
+            if start_settling(root) {
+                EARLY_TAGS.with(|tags| tags.borrow_mut().insert(root, node.tag));
+                window.set_presentation_hold(Some(HOLD.with(Rc::clone)));
+            }
+            return None;
+        }
         TREES.with(|trees| {
             let mut trees = trees.borrow_mut();
             let state = trees.get_mut(&root)?;
             state.tag.set(Some(node.tag));
+            let settling = UNSETTLED.with(|unsettled| {
+                unsettled
+                    .borrow_mut()
+                    .get_mut(&root)
+                    .map(|settling| settling.rendered = Some(next_sequence()))
+                    .is_some()
+            });
+            if settling {
+                window.set_presentation_hold(Some(HOLD.with(Rc::clone)));
+            }
             let started = std::time::Instant::now();
             CURRENT_ROOT.with(|current| current.set(root));
             collect_slot_hosts(root, cx);
@@ -354,6 +439,43 @@ impl ComponentRenderer for NativeRootRenderer {
             )
             .absolute()
             .size_full();
+            let frame_size = (node.frame.w, node.frame.h);
+            // A tree without its first batch is empty, and as high as its
+            // empty box: that is not its size.
+            let has_content = state
+                .tree
+                .roots()
+                .first()
+                .is_some_and(|&container| !state.tree.children(container).is_empty());
+            let settled_width = state.reported_width.clone();
+            let settle = settling.then(|| {
+                canvas(
+                    move |bounds, window, _| {
+                        let (width, height) = frame_size;
+                        let (max, min) = settled_width.get();
+                        // Yoga rounds the box to the pixel grid: within half a
+                        // device pixel of the tree, it will not move again.
+                        let slack = 0.5 / window.scale_factor();
+                        let sized = (!auto
+                            || (height - f32::from(bounds.size.height)).abs() <= slack)
+                            && (!auto_width
+                                || (max >= 0.0 && width >= min - slack && width <= max + slack));
+                        let settled =
+                            has_content && sized && !crate::builtins::native_slot::waiting_in(root);
+                        UNSETTLED.with(|unsettled| {
+                            let mut unsettled = unsettled.borrow_mut();
+                            if settled {
+                                unsettled.remove(&root);
+                            } else if let Some(settling) = unsettled.get_mut(&root) {
+                                settling.painted = Some(next_sequence());
+                            }
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full()
+            });
             let frame = div().absolute().w_full();
             let frame = if auto { frame } else { frame.h_full() };
             let auto = auto || auto_width;
@@ -376,6 +498,7 @@ impl ComponentRenderer for NativeRootRenderer {
                     })
                     .children(elements)
                     .when(auto, |this| this.child(measure))
+                    .children(settle)
                     .into_any_element(),
             )
         })
