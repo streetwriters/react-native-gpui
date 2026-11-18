@@ -157,6 +157,7 @@ export type IdleOptions = {
     | 'network'
     | 'images'
     | 'websockets'
+    | 'modules'
   >;
 };
 

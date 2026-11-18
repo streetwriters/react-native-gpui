@@ -6,8 +6,8 @@ The [Loom](https://github.com/ammarahm-ed/Loom) renderer is not on npm, so we pi
 
 - Repository: https://github.com/ammarahm-ed/Loom
 - Branch: `0.87-stable`
-- Commit: `f92e729282dcdced89504529f73518cb1d1fea38`, `packages/react-native-loom` 0.87.0, for React Native 0.87.1
-- Archive: `https://codeload.github.com/ammarahm-ed/Loom/tar.gz/<commit>`, SHA-256 `d6c143496c6b22e9848dcf84d0012c934762891141f186c91dc2e04af696b70e`
+- Commit: `f89ca4d81ab2ad3756d91d4dae73fd7e79967a7d`, `packages/react-native-loom` 0.87.0, for React Native 0.87.1
+- Archive: `https://codeload.github.com/ammarahm-ed/Loom/tar.gz/<commit>`, SHA-256 `d99dcbe242f0c6f8d0a60c55f52387c7fb237ef947c660e4d87f311131223df8`
 
 ## How it is used
 

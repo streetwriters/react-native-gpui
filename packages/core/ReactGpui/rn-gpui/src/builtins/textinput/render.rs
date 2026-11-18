@@ -70,6 +70,7 @@ pub(crate) fn paragraph_content(
                             &paragraph,
                             text_width,
                             viewport_height,
+                            None,
                         )),
                 ),
         );
@@ -100,6 +101,7 @@ pub(crate) fn paragraph_content(
                             paragraph,
                             viewport_width,
                             content_height,
+                            None,
                         )),
                 ),
         );
@@ -118,6 +120,7 @@ pub(crate) fn plain_paragraph(
     scale: (f32, f32),
     frame: RectF,
     overlay: bool,
+    prepared: Option<&crate::text::PreparedParagraph>,
 ) -> (Stateful<Div>, Option<crate::text::ParagraphOverlayParts>) {
     let (scale_x, scale_y) = scale;
     let insets = node.view.content_insets;
@@ -148,7 +151,7 @@ pub(crate) fn plain_paragraph(
             .bg(gpui::rgba(0x3875d788))
     }));
     if overlay {
-        let painter = crate::text::ParagraphPainter::new(paragraph, width, height);
+        let painter = crate::text::ParagraphPainter::new(paragraph, width, height, prepared);
         let parts = (
             painter,
             gpui::point(px(left), px(top)),
@@ -158,7 +161,7 @@ pub(crate) fn plain_paragraph(
     }
     (
         element.child(
-            crate::text::paragraph_element(paragraph, width, height)
+            crate::text::paragraph_element(paragraph, width, height, prepared)
                 .absolute()
                 .left(px(left))
                 .top(px(top)),

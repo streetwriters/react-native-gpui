@@ -3,6 +3,7 @@
 #include "GpuiLoomHost.h"
 
 #include "GpuiTurboModule.h"
+#include "MountBatchBuilder.h"
 #include "react/coremodules/DeviceInfoModule.h"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
 
@@ -25,11 +26,17 @@
 #include <react/renderer/core/RawProps.h>
 #include <react/renderer/core/ShadowNodeFamily.h>
 #include <react/renderer/loom/binding/LoomBinding.h>
+#include <react/renderer/runtimescheduler/LoomJavaScriptThread.h>
+#include <react/renderer/runtimescheduler/LoomSettings.h>
 
 #include <algorithm>
 #include <cmath>
+#include <condition_variable>
+#include <deque>
 #include <iterator>
 #include <limits>
+#include <thread>
+#include <unordered_set>
 
 namespace rngpui {
 
@@ -37,11 +44,161 @@ using namespace facebook::react;
 
 namespace {
 
+// Loom's UI thread when JavaScript runs on its own thread: commit results are
+// turned into mount batches here, and the GPUI main thread only applies them,
+// so a frame being drawn never delays a commit and a commit never delays a
+// frame. With JavaScript on the main thread, the GPUI main thread is Loom's UI
+// thread.
+class MountThread {
+ public:
+  static MountThread& shared() {
+    static auto* thread = new MountThread();
+    return *thread;
+  }
+
+  void post(std::function<void()> task) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      tasks_.push_back(std::move(task));
+    }
+    wake_.notify_one();
+  }
+
+  bool isCurrent() const {
+    return std::this_thread::get_id() == id_.load(std::memory_order_acquire);
+  }
+
+ private:
+  MountThread() {
+    std::thread([this] {
+      folly::setThreadName("loom-mount");
+      id_.store(std::this_thread::get_id(), std::memory_order_release);
+      for (;;) {
+        std::function<void()> task;
+        {
+          std::unique_lock<std::mutex> lock(mutex_);
+          wake_.wait(lock, [this] { return !tasks_.empty(); });
+          task = std::move(tasks_.front());
+          tasks_.pop_front();
+        }
+        try {
+          task();
+        } catch (const std::exception& error) {
+          LOG(ERROR) << "Loom mount task failed: " << error.what();
+        }
+      }
+    }).detach();
+  }
+
+  std::mutex mutex_;
+  std::condition_variable wake_;
+  std::deque<std::function<void()>> tasks_;
+  std::atomic<std::thread::id> id_{};
+};
+
+bool loomUIIsMountThread() {
+  return !loomJavaScriptOnUIThread();
+}
+
+void postToLoomUI(std::function<void()> task) {
+  if (loomUIIsMountThread()) {
+    MountThread::shared().post(std::move(task));
+  } else {
+    dispatchMain(std::move(task));
+  }
+}
+
+// Threads for Loom's parallel text measurement
+// (`LoomPlatformTraits::parallelFor`). One job at a time; the calling thread
+// works on it too.
+class TextPool {
+ public:
+  static TextPool& shared() {
+    static auto* pool = new TextPool();
+    return *pool;
+  }
+
+  void run(size_t count, const std::function<void(size_t)>& body) {
+    std::lock_guard<std::mutex> serial(runMutex_);
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      body_ = &body;
+      count_ = count;
+      next_ = 0;
+      pending_ = count;
+      ++generation_;
+    }
+    wake_.notify_all();
+    work();
+    std::unique_lock<std::mutex> lock(mutex_);
+    done_.wait(lock, [this] { return pending_ == 0; });
+    body_ = nullptr;
+  }
+
+ private:
+  TextPool() {
+    const unsigned cores = std::thread::hardware_concurrency();
+    const unsigned threads = cores > 3 ? std::min(cores / 2, 4u) : 1u;
+    for (unsigned index = 0; index < threads; ++index) {
+      std::thread([this] {
+        folly::setThreadName("loom-text");
+        loop();
+      }).detach();
+    }
+  }
+
+  void loop() {
+    uint64_t seen = 0;
+    for (;;) {
+      {
+        std::unique_lock<std::mutex> lock(mutex_);
+        wake_.wait(lock, [&] { return generation_ != seen; });
+        seen = generation_;
+      }
+      work();
+    }
+  }
+
+  void work() {
+    for (;;) {
+      size_t index;
+      const std::function<void(size_t)>* body;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (body_ == nullptr || next_ >= count_) {
+          return;
+        }
+        index = next_++;
+        body = body_;
+      }
+      try {
+        (*body)(index);
+      } catch (...) {
+        // That paragraph stays unmeasured; the layout pass measures it.
+      }
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (--pending_ == 0) {
+        done_.notify_all();
+      }
+    }
+  }
+
+  std::mutex runMutex_;
+  std::mutex mutex_;
+  std::condition_variable wake_;
+  std::condition_variable done_;
+  const std::function<void(size_t)>* body_{nullptr};
+  size_t count_{0};
+  size_t next_{0};
+  size_t pending_{0};
+  uint64_t generation_{0};
+};
+
 constexpr size_t kWorkerStackSize = 2 * 1024 * 1024;
 
 void logLoom(LoomLogLevel level, const char* tag, const char* message) {
   const auto line = std::string(tag) + ": " + message;
-  rn_gpui_log(level == LoomLogLevel::Warn ? 2 : 0, line);
+  rn_gpui_log(level == LoomLogLevel::Warn ? 2 : 1, line);
 }
 
 } // namespace
@@ -86,6 +243,53 @@ TextAttributes GpuiLoomTextServices::parseTextAttributes(
       surfaceId, componentName, props, adjusted, outParagraphAttributes);
 }
 
+LoomTextMeasurement GpuiLoomTextServices::prepareText(
+    SurfaceId /*surfaceId*/,
+    const AttributedString& attributedString,
+    const ParagraphAttributes& paragraphAttributes,
+    const Size& minimumSize,
+    const Size& maximumSize) {
+  const auto& fragments = attributedString.getFragments();
+  if (fragments.empty() ||
+      std::any_of(fragments.begin(), fragments.end(), [](const auto& fragment) {
+        return fragment.isAttachment();
+      })) {
+    return {};
+  }
+  const auto flat =
+      flattenParagraphText(attributedString, paragraphAttributes, false);
+  const auto prepared = rn_gpui_prepare_text(flat, maximumSize.width);
+  if (prepared.handle == 0) {
+    return {};
+  }
+  LoomTextMeasurement measurement;
+  measurement.preparedLayout = std::shared_ptr<void>(
+      reinterpret_cast<void*>(prepared.handle), [](void* handle) {
+        rn_gpui_release_prepared(reinterpret_cast<std::uintptr_t>(handle));
+      });
+  LayoutConstraints constraints;
+  constraints.minimumSize = minimumSize;
+  constraints.maximumSize = maximumSize;
+  measurement.size =
+      constraints.clamp({.width = prepared.width, .height = prepared.height});
+  measurement.valid = true;
+  return measurement;
+}
+
+LoomTextMeasurement GpuiLoomTextServices::prepareTextForMount(
+    SurfaceId surfaceId,
+    const AttributedString& attributedString,
+    const ParagraphAttributes& paragraphAttributes,
+    const Size& minimumSize,
+    const Size& maximumSize) {
+  return prepareText(
+      surfaceId,
+      attributedString,
+      paragraphAttributes,
+      minimumSize,
+      maximumSize);
+}
+
 GpuiLoomHost::GpuiLoomHost(
     std::shared_ptr<GpuiMountingManager> mountingManager,
     std::shared_ptr<const ContextContainer> contextContainer,
@@ -101,6 +305,35 @@ GpuiLoomHost::GpuiLoomHost(
       imageManager_(std::make_shared<ImageManager>(contextContainer)) {
   active_.store(this, std::memory_order_release);
   setMountPendingProbe(&GpuiLoomHost::pending);
+  LoomSettings::configurePlatform(kLoomPlatformDesktop);
+  if (std::getenv("RN_GPUI_LOOM_PROFILE") != nullptr) {
+    LoomSettings::set(LoomSettingId::ProfileWorker, 1);
+  }
+}
+
+void GpuiLoomHost::connect() {
+  GpuiMountingManager::Routes routes;
+  routes.event =
+      [weak = weak_from_this()](
+          Tag tag, const std::string& type, folly::dynamic&& payload) {
+        if (const auto self = weak.lock()) {
+          self->dispatchNativeEvent(tag, type, std::move(payload));
+        }
+      };
+  routes.wheel = [weak = weak_from_this()](
+                     Tag tag, uint64_t id, folly::dynamic&& payload) {
+    if (const auto self = weak.lock()) {
+      self->dispatchNativeWheel(tag, id, std::move(payload));
+    } else {
+      rn_gpui_on_wheel_done(id, false);
+    }
+  };
+  routes.geometry = [weak = weak_from_this()](Tag tag) {
+    const auto self = weak.lock();
+    return self ? self->animatedGeometry(tag)
+                : std::optional<GpuiMountingManager::AnimatedGeometry>{};
+  };
+  mountingManager_->setRoutes(std::move(routes));
 }
 
 GpuiLoomHost::~GpuiLoomHost() {
@@ -162,9 +395,23 @@ LoomComponentTable componentTable() {
 LoomPlatformTraits GpuiLoomHost::traits() const {
   LoomPlatformTraits traits;
   traits.components = componentTable();
-  traits.isUIThread = [] { return rn_gpui_is_main_thread(); };
+  traits.isUIThread = [] {
+    return loomUIIsMountThread() ? MountThread::shared().isCurrent()
+                                 : rn_gpui_is_main_thread();
+  };
   traits.workerStackSize = kWorkerStackSize;
   traits.workerThreadName = "loom-worker";
+  // `sendsPropDiffs` stays null: an update carries every prop, and this host
+  // rebuilds a view from `operation.props` and clones compat props from
+  // nothing, which a diff would break.
+  traits.hasPreparedTextLayout = true;
+  traits.liveReadsOnAnyThread = true;
+  traits.insertsCarryInitialLayout = true;
+  traits.removesSubtreeRootOnly = true;
+  traits.parallelFor = [](size_t count,
+                          const std::function<void(size_t)>& body) {
+    TextPool::shared().run(count, body);
+  };
   traits.setCurrentThreadName = [](const char* name) {
     folly::setThreadName(name);
   };
@@ -175,7 +422,7 @@ LoomPlatformTraits GpuiLoomHost::traits() const {
 std::function<void(std::function<void()>)> GpuiLoomHost::uiExecutor() {
   return [weak = weak_from_this()](std::function<void()> task) {
     pendingUiTasks_.fetch_add(1, std::memory_order_relaxed);
-    dispatchMain([weak, task = std::move(task)] {
+    postToLoomUI([weak, task = std::move(task)] {
       if (const auto self = weak.lock()) {
         std::shared_lock<std::shared_mutex> alive(self->lifetimeMutex_);
         if (self->alive_) {
@@ -194,6 +441,8 @@ bool GpuiLoomHost::ensureScheduler() {
   schedulerAccess_([this](Scheduler& scheduler) {
     registry_ = scheduler.getComponentDescriptorRegistry();
     if (auto dispatcher = scheduler.getEventDispatcher()) {
+      std::lock_guard<std::mutex> events(eventMutex_);
+      eventDispatcher_ = dispatcher;
       eventManager_ = std::make_shared<LoomEventManager>(std::move(dispatcher));
     }
   });
@@ -205,66 +454,173 @@ GpuiLoomHost::Node* GpuiLoomHost::find(Tag tag) {
   return found == nodes_.end() ? nullptr : &found->second;
 }
 
-void GpuiLoomHost::markDirty(Node& node, Tag tag) {
-  node.dirty = true;
-  dirty_.insert(tag);
+const GpuiLoomHost::ComponentInfo* GpuiLoomHost::componentInfo(
+    const std::string& name) {
+  const auto found = components_.find(name);
+  if (found != components_.end()) {
+    return found->second.descriptor != nullptr ? &found->second : nullptr;
+  }
+  ComponentInfo info;
+  try {
+    const auto& descriptor = registry_->at(name);
+    info.descriptor = &descriptor;
+    info.name = descriptor.getComponentName();
+    info.opName = componentNameStr(info.name);
+    info.handle = descriptor.getComponentHandle();
+    info.traits = descriptor.getTraits();
+    const std::string_view fabricName = info.name;
+    info.kind = fabricName == "View"    ? Kind::View
+        : fabricName == "Paragraph"     ? Kind::Paragraph
+        : fabricName == "Image"         ? Kind::Image
+        : fabricName == "ScrollView"    ? Kind::ScrollView
+        : fabricName == "TextInput"     ? Kind::TextInput
+        : fabricName == "ModalHostView" ? Kind::Modal
+                                        : Kind::Compat;
+    if (info.kind == Kind::Compat) {
+      if (rngpui::anyHostComponents()) {
+        info.host = rngpui::hostComponentEntry(info.handle);
+      }
+      const auto& hooks = gpuiExtensionHooks().componentProps;
+      if (const auto hook = hooks.find(std::string(fabricName));
+          hook != hooks.end()) {
+        info.hook = &hook->second;
+      }
+    }
+  } catch (const std::exception& error) {
+    LOG(ERROR) << "Loom: no component descriptor for " << name << ": "
+               << error.what();
+  }
+  const auto inserted = components_.emplace(name, info).first;
+  return info.descriptor != nullptr ? &inserted->second : nullptr;
+}
+
+void GpuiLoomHost::markDirty(Node& node, Tag tag, std::uint8_t bits) {
+  node.dirty |= bits;
+  if ((node.dirty & kQueued) == 0) {
+    node.dirty |= kQueued;
+    dirtyTags_.push_back(tag);
+  }
 }
 
 EventEmitter::Shared GpuiLoomHost::makeEmitter(const Node& node, Tag tag) {
-  const auto handle = instanceHandles_.find(tag);
-  if (handle == instanceHandles_.end() || node.descriptor == nullptr) {
-    return nullptr;
+  InstanceHandle::Shared handle;
+  {
+    std::lock_guard<std::mutex> events(eventMutex_);
+    const auto found = instanceHandles_.find(tag);
+    if (found == instanceHandles_.end()) {
+      return nullptr;
+    }
+    handle = found->second.handle;
   }
-  auto family = node.descriptor->createFamily(
-      ShadowNodeFamilyFragment{tag, node.surfaceId, handle->second});
+  auto family = node.info->descriptor->createFamily(
+      ShadowNodeFamilyFragment{tag, node.surfaceId, std::move(handle)});
   auto emitter = family->getEventEmitter();
   emitter->getEventTarget()->setEnabled(true);
   families_[tag] = std::move(family);
   return emitter;
 }
 
-// Everything the mounting side reads from a node that Loom does not send:
-// resolved border widths, the content insets, and an Image's request.
-void GpuiLoomHost::refreshDerived(Node& node, Tag tag) {
-  auto& metrics = node.view.layoutMetrics;
+// What a mount observer or a prop extractor reads of a node: its identity,
+// geometry and, for a compat component, its typed props and state.
+ShadowView GpuiLoomHost::lightView(const Node& node, Tag tag) const {
+  ShadowView view;
+  view.componentName = node.info->name;
+  view.componentHandle = node.info->handle;
+  view.traits = node.info->traits;
+  view.surfaceId = node.surfaceId;
+  view.tag = tag;
+  auto& metrics = view.layoutMetrics;
+  metrics.frame = {
+      {node.frame[0], node.frame[1]}, {node.frame[2], node.frame[3]}};
+  metrics.displayType = static_cast<DisplayType>(node.displayType);
+  metrics.layoutDirection = node.direction == 2 ? LayoutDirection::RightToLeft
+                                                : LayoutDirection::LeftToRight;
   metrics.pointScaleFactor = pointScaleFactor_;
   metrics.contentInsets = {
-      node.contentInsets[0],
-      node.contentInsets[1],
-      node.contentInsets[2],
-      node.contentInsets[3]};
-  metrics.overflowInset = {
-      node.overflowInsets[0],
-      node.overflowInsets[1],
-      node.overflowInsets[2],
-      node.overflowInsets[3]};
-  if (const auto viewProps =
-          std::dynamic_pointer_cast<const BaseViewProps>(node.view.props)) {
-    const auto widths = viewProps->getBorderWidths().resolve(
-        metrics.layoutDirection == LayoutDirection::RightToLeft, 0);
-    metrics.borderWidth = {
-        widths.left, widths.top, widths.right, widths.bottom};
+      node.insets[0], node.insets[1], node.insets[2], node.insets[3]};
+  if (node.compat) {
+    view.props = node.compat->props;
+    view.state = node.compat->state;
   }
-  if (std::string_view(node.view.componentName) != "Image") {
-    return;
+  return view;
+}
+
+namespace {
+// Turns what an image request reports into the Image component's events.
+class LoomImageObserver final : public ImageResponseObserver {
+ public:
+  LoomImageObserver(
+      std::weak_ptr<GpuiLoomHost> host,
+      Tag tag,
+      ImageSource source)
+      : host_(std::move(host)), tag_(tag), source_(std::move(source)) {}
+
+  void didReceiveProgress(float progress, int64_t loaded, int64_t total)
+      const override {
+    send(
+        "topProgress",
+        folly::dynamic::object("progress", progress)(
+            "loaded", static_cast<double>(loaded))(
+            "total", static_cast<double>(total)));
   }
-  const auto imageProps =
-      std::dynamic_pointer_cast<const ImageProps>(node.view.props);
-  if (!imageProps) {
-    return;
+
+  void didReceiveImage(const ImageResponse& response) const override {
+    auto source = source_;
+    if (auto size = std::static_pointer_cast<Size>(response.getImage())) {
+      source.size = *size;
+      source.scale = 1;
+    }
+    send(
+        "topLoad",
+        folly::dynamic::object(
+            "source",
+            folly::dynamic::object("uri", source.uri)(
+                "width", source.size.width * source.scale)(
+                "height", source.size.height * source.scale)));
+    send("topLoadEnd", folly::dynamic::object());
   }
-  const auto contentSize = metrics.getContentFrame().size;
-  const auto scale = metrics.pointScaleFactor;
+
+  void didReceiveFailure(const ImageLoadError& error) const override {
+    folly::dynamic payload = folly::dynamic::object();
+    if (auto message = std::static_pointer_cast<std::string>(error.getError());
+        message && !message->empty()) {
+      payload["error"] = *message;
+    }
+    send("topError", std::move(payload));
+    send("topLoadEnd", folly::dynamic::object());
+  }
+
+ private:
+  void send(const char* type, folly::dynamic&& payload) const {
+    if (const auto host = host_.lock()) {
+      host->dispatchTargetEvent(tag_, type, std::move(payload));
+    }
+  }
+
+  std::weak_ptr<GpuiLoomHost> host_;
+  Tag tag_;
+  ImageSource source_;
+};
+} // namespace
+
+// An Image asks for its picture at the size it was laid out at, and again when
+// the size or the source changes.
+void GpuiLoomHost::syncImage(Node& node, Tag tag) {
+  auto& ext = *node.ext;
+  const Size contentSize{
+      std::max(0.f, node.frame[2] - node.insets[0] - node.insets[2]),
+      std::max(0.f, node.frame[3] - node.insets[1] - node.insets[3])};
+  const auto scale = pointScaleFactor_;
   ImageSource source{ImageSource::Type::Invalid};
-  if (imageProps->sources.size() == 1) {
-    source = imageProps->sources.front();
+  if (ext.sources.size() == 1) {
+    source = ext.sources.front();
     source.size = contentSize;
     source.scale = scale;
-  } else if (!imageProps->sources.empty()) {
+  } else if (!ext.sources.empty()) {
     const auto targetArea =
         contentSize.width * contentSize.height * scale * scale;
     auto bestFit = std::numeric_limits<Float>::infinity();
-    for (const auto& candidate : imageProps->sources) {
+    for (const auto& candidate : ext.sources) {
       const auto candidateScale =
           candidate.scale == 0 ? scale : candidate.scale;
       const auto candidateArea = candidate.size.width * candidate.size.height *
@@ -278,30 +634,215 @@ void GpuiLoomHost::refreshDerived(Node& node, Tag tag) {
     source.size = contentSize;
     source.scale = scale;
   }
-  const ImageRequestParams params{imageProps->blurRadius};
-  if (const auto previous =
-          std::dynamic_pointer_cast<const ImageShadowNode::ConcreteState>(
-              node.view.state)) {
-    if (previous->getData().getImageSource() == source &&
-        previous->getData().getImageRequestParams() == params) {
-      return;
-    }
+  const ImageRequestParams params{ext.blurRadius};
+  if (ext.requested && *ext.requested == source &&
+      ext.requestedParams == params) {
+    return;
   }
-  ImageState state{
-      source,
-      imageManager_->requestImage(source, node.surfaceId, params, tag),
-      params};
-  node.view.state = std::make_shared<const ImageShadowNode::ConcreteState>(
-      std::make_shared<const ImageState>(std::move(state)),
-      ShadowNodeFamily::Weak{});
+  if (const auto found = imageObservations_.find(tag);
+      found != imageObservations_.end()) {
+    found->second.coordinator->removeObserver(found->second.observer);
+    imageObservations_.erase(found);
+  }
+  ext.request = std::make_unique<ImageRequest>(
+      imageManager_->requestImage(source, node.surfaceId, params, tag));
+  ext.requested = source;
+  ext.requestedParams = params;
+  auto coordinator = ext.request->getSharedObserverCoordinator();
+  auto observer =
+      std::make_shared<LoomImageObserver>(weak_from_this(), tag, source);
+  if (source.type != ImageSource::Type::Invalid) {
+    dispatchTargetEvent(tag, "topLoadStart", folly::dynamic::object());
+  }
+  coordinator->addObserver(observer);
+  imageObservations_[tag] = {std::move(coordinator), std::move(observer)};
+}
+
+void GpuiLoomHost::reportModal(Node& node, Tag tag, bool visible) {
+  if (node.ext->shown == visible) {
+    return;
+  }
+  node.ext->shown = visible;
+  dispatchTargetEvent(
+      tag, visible ? "topShow" : "topDismiss", folly::dynamic::object());
 }
 
 void GpuiLoomHost::drop(Tag tag) {
-  nodes_.erase(tag);
+  {
+    std::lock_guard<std::mutex> events(eventMutex_);
+    earlyLayouts_.erase(tag);
+    pendingEvents_.erase(tag);
+  }
+  decltype(nodes_)::node_type node;
+  {
+    std::lock_guard<std::mutex> scroll(scrollMutex_);
+    node = nodes_.extract(tag);
+    scrollOffsets_.erase(tag);
+  }
   viewless_.erase(tag);
-  dirty_.erase(tag);
-  pendingStates_.erase(tag);
-  scrollOffsets_.erase(tag);
+  pendingEffects_.erase(tag);
+  mountingManager_->clearComponentState(tag);
+  if (const auto found = imageObservations_.find(tag);
+      found != imageObservations_.end()) {
+    found->second.coordinator->removeObserver(found->second.observer);
+    imageObservations_.erase(found);
+  }
+}
+
+// A node that goes away while the mounting side still holds it is deleted
+// there first.
+void GpuiLoomHost::retire(Tag tag) {
+  auto* node = find(tag);
+  if (node != nullptr && node->created) {
+    if (node->ext && node->info->kind == Kind::Modal) {
+      reportModal(*node, tag, false);
+    }
+    structural_.push_back(
+        {Structural::Delete,
+         node->surfaceId,
+         tag,
+         -1,
+         -1,
+         node->info,
+         node->ext ? node->ext->sent : std::string{}});
+  }
+  drop(tag);
+}
+
+void GpuiLoomHost::parseView(
+    const PropsParserContext& context,
+    Node& node,
+    const folly::dynamic& props) {
+  const bool wasSelectable = node.flags.selectable;
+  node.deps.reset();
+  node.flags = {};
+  auto view = std::make_unique<ViewPropsFlat>();
+  initLoomView(*view);
+  parseLoomViewProps(context, props, *view, node.flags, node.deps);
+  node.parsed = std::move(view);
+  if (node.created && wasSelectable != node.flags.selectable) {
+    node.dirty |= kSelectable;
+  }
+  switch (node.info->kind) {
+    case Kind::Image: {
+      auto image = parseLoomImage(context, props);
+      node.ext->body = std::move(image.body);
+      node.ext->sources = std::move(image.sources);
+      node.ext->blurRadius = image.blurRadius;
+      break;
+    }
+    case Kind::ScrollView:
+      node.ext->body = parseLoomScrollView(context, props);
+      break;
+    case Kind::TextInput: {
+      auto input = parseLoomTextInput(context, props);
+      node.ext->body = std::move(input.body);
+      // An empty input has no fragment, so the placeholder and the caret would
+      // not know the font and color the typed text will have.
+      ParagraphAttributes attributes;
+      auto attrs = text_.parseTextAttributes(
+          node.surfaceId, "TextInput", props, TextAttributes{}, attributes);
+      attrs.fontSizeMultiplier = 1.f;
+      node.ext->fallback = flattenTextFragment(attrs, "");
+      break;
+    }
+    case Kind::Modal: {
+      node.ext->visible = parseLoomModalVisible(props);
+      JsonBody json;
+      json.boolean("visible", node.ext->visible);
+      node.ext->body = json.body();
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+void GpuiLoomHost::onCreate(
+    const PropsParserContext& context,
+    const DirectCreateOperation& operation) {
+  const auto tag = operation.tag;
+  if (find(tag) != nullptr) {
+    retire(tag);
+  }
+  viewless_.erase(tag);
+  if (!operation.layoutable) {
+    viewless_.insert(tag);
+    pendingEffects_.erase(tag);
+    return;
+  }
+  const auto* info = componentInfo(operation.componentName);
+  if (info == nullptr) {
+    viewless_.insert(tag);
+    pendingEffects_.erase(tag);
+    return;
+  }
+  Node node;
+  node.surfaceId = context.surfaceId;
+  node.info = info;
+  PendingEffects pending;
+  bool hasPending = false;
+  if (const auto found = pendingEffects_.find(tag);
+      found != pendingEffects_.end()) {
+    pending = std::move(found->second);
+    pendingEffects_.erase(found);
+    hasPending = true;
+  }
+  const bool carriesExt = info->kind != Kind::View &&
+      info->kind != Kind::Paragraph &&
+      (info->kind != Kind::Compat || info->hook != nullptr);
+  if (carriesExt) {
+    node.ext = std::make_unique<Ext>();
+  }
+  if (info->kind == Kind::Compat) {
+    node.compat = std::make_unique<Compat>();
+    node.compat->props = operation.parsedProps != nullptr
+        ? operation.parsedProps
+        : info->descriptor->cloneProps(
+              context, nullptr, RawProps(operation.props));
+    if (hasPending) {
+      node.compat->state = pending.state;
+    }
+    node.compat->emitter = makeEmitter(node, tag);
+  }
+  if (hasPending && pending.state) {
+    mountingManager_->setComponentState(
+        tag, info->name, info->handle, pending.state);
+  }
+  parseView(context, node, operation.props);
+  if (hasPending) {
+    if (pending.text) {
+      node.text = std::move(pending.text);
+    }
+    if (node.ext && pending.hasScrollState) {
+      node.ext->hasScrollState = true;
+      node.ext->offset = pending.offset;
+      node.ext->content = pending.content;
+    }
+  }
+  Node* stored = nullptr;
+  {
+    std::lock_guard<std::mutex> scroll(scrollMutex_);
+    stored = &nodes_.emplace(tag, std::move(node)).first->second;
+  }
+  markDirty(*stored, tag, 0);
+}
+
+void GpuiLoomHost::onUpdateProps(
+    const PropsParserContext& context,
+    const DirectUpdatePropsOperation& operation) {
+  auto* node = find(operation.tag);
+  if (node == nullptr) {
+    return;
+  }
+  if (node->compat) {
+    node->compat->props = operation.parsedProps != nullptr
+        ? operation.parsedProps
+        : node->info->descriptor->cloneProps(
+              context, nullptr, RawProps(operation.props));
+  }
+  parseView(context, *node, operation.props);
+  markDirty(*node, operation.tag, 0);
 }
 
 void GpuiLoomHost::applyBatch(SurfaceId surfaceId, LoomMountBatch batch) {
@@ -311,246 +852,571 @@ void GpuiLoomHost::applyBatch(SurfaceId surfaceId, LoomMountBatch batch) {
   }
   const PropsParserContext context{surfaceId, *contextContainer_};
 
-  std::vector<ShadowViewMutation> leading;
-  std::vector<ShadowViewMutation> removes;
-  std::vector<ShadowViewMutation> deletes;
-  std::vector<ShadowViewMutation> inserts;
-  std::vector<Tag> created;
+  // A tag deleted and created again in one batch: the old node goes first, and
+  // the delete that follows must leave the new one alone.
+  std::unordered_set<Tag> replaced;
+  if (batch.requiresTagReplacement) {
+    std::unordered_set<Tag> deleted;
+    for (const auto index :
+         batch.phaseOperationIndexes[LoomMountBatch::Deletes]) {
+      deleted.insert(
+          std::get<DirectDeleteOperation>(batch.operations[index]).tag);
+    }
+    for (const auto index :
+         batch.phaseOperationIndexes[LoomMountBatch::CreateAndProps]) {
+      if (const auto* created =
+              std::get_if<DirectCreateOperation>(&batch.operations[index])) {
+        if (deleted.count(created->tag) != 0) {
+          replaced.insert(created->tag);
+        }
+      }
+    }
+    for (const auto tag : replaced) {
+      retire(tag);
+    }
+  }
 
-  auto parse = [&](const ComponentDescriptor& descriptor,
-                   const std::shared_ptr<const Props>& parsed,
-                   const folly::dynamic& raw) -> Props::Shared {
-    return parsed != nullptr
-        ? parsed
-        : descriptor.cloneProps(context, nullptr, RawProps(raw));
+  const auto layout = [&](Tag tag,
+                          Tag parent,
+                          int displayType,
+                          int layoutDirection,
+                          float x,
+                          float y,
+                          float width,
+                          float height) {
+    auto* node = find(tag);
+    if (node == nullptr) {
+      return;
+    }
+    const std::array<float, 4> frame{x, y, width, height};
+    std::uint8_t bits = 0;
+    {
+      std::lock_guard<std::mutex> scroll(scrollMutex_);
+      if (node->frame != frame) {
+        node->frame = frame;
+        bits |= kFrame;
+      }
+      node->parent = parent;
+      node->laidOut = true;
+    }
+    if (node->displayType != displayType) {
+      node->displayType = static_cast<std::uint8_t>(displayType);
+      bits |= kDisplay;
+    }
+    if (node->direction != layoutDirection) {
+      node->direction = static_cast<std::uint8_t>(layoutDirection);
+      bits |= kDirection;
+    }
+    if (bits != 0) {
+      markDirty(*node, tag, bits);
+    }
   };
 
   auto apply = [&](const auto& operation) {
     using Operation = std::decay_t<decltype(operation)>;
     if constexpr (std::is_same_v<Operation, DirectCreateOperation>) {
-      const auto tag = operation.tag;
-      if (auto* previous = find(tag)) {
-        // The tag is created again in the batch that deletes its previous
-        // incarnation, so the old node goes first and the delete that follows
-        // must leave the new one alone.
-        if (previous->created) {
-          leading.push_back(ShadowViewMutation::DeleteMutation(previous->sent));
-        }
-        nodes_.erase(tag);
-        dirty_.erase(tag);
-        replaced_.insert(tag);
-      } else if (viewless_.erase(tag) != 0) {
-        replaced_.insert(tag);
-      }
-      if (!operation.layoutable) {
-        viewless_.insert(tag);
-        return;
-      }
-      const ComponentDescriptor* descriptor = nullptr;
-      try {
-        descriptor = &registry_->at(operation.componentName);
-      } catch (const std::exception& error) {
-        LOG(ERROR) << "Loom: no component descriptor for "
-                   << operation.componentName << ": " << error.what();
-        viewless_.insert(tag);
-        return;
-      }
-      Node node;
-      node.surfaceId = surfaceId;
-      node.descriptor = descriptor;
-      node.view.componentName = descriptor->getComponentName();
-      node.view.componentHandle = descriptor->getComponentHandle();
-      node.view.traits = descriptor->getTraits();
-      node.view.surfaceId = surfaceId;
-      node.view.tag = tag;
-      node.view.layoutMetrics = LayoutMetrics{};
-      node.view.props =
-          parse(*descriptor, operation.parsedProps, operation.props);
-      if (const auto pending = pendingStates_.find(tag);
-          pending != pendingStates_.end()) {
-        node.view.state = std::move(pending->second);
-        pendingStates_.erase(pending);
-      }
-      node.view.eventEmitter = makeEmitter(node, tag);
-      refreshDerived(node, tag);
-      nodes_[tag] = std::move(node);
-      created.push_back(tag);
+      onCreate(context, operation);
     } else if constexpr (std::
                              is_same_v<Operation, DirectUpdatePropsOperation>) {
-      auto* node = find(operation.tag);
-      if (node == nullptr) {
-        return;
-      }
-      node->view.props =
-          parse(*node->descriptor, operation.parsedProps, operation.props);
-      refreshDerived(*node, operation.tag);
-      markDirty(*node, operation.tag);
+      onUpdateProps(context, operation);
     } else if constexpr (std::is_same_v<Operation, DirectRemoveOperation>) {
       if (auto* node = find(operation.tag); node != nullptr && node->created) {
-        removes.push_back(ShadowViewMutation::RemoveMutation(
-            operation.parentTag,
-            node->sent,
-            static_cast<int>(operation.index)));
+        structural_.push_back(
+            {Structural::Remove,
+             node->surfaceId,
+             operation.tag,
+             operation.parentTag,
+             static_cast<std::int32_t>(operation.index),
+             node->info,
+             {}});
       }
     } else if constexpr (std::is_same_v<Operation, DirectInsertOperation>) {
       if (auto* node = find(operation.tag)) {
-        node->parent = operation.parentTag;
-        inserts.push_back(ShadowViewMutation::InsertMutation(
-            operation.parentTag,
-            node->view,
-            static_cast<int>(operation.index)));
-        node->sent = node->view;
-        node->created = true;
+        {
+          std::lock_guard<std::mutex> scroll(scrollMutex_);
+          node->parent = operation.parentTag;
+        }
+        if (operation.hasLayout) {
+          layout(
+              operation.tag,
+              operation.parentTag,
+              operation.displayType,
+              operation.layoutDirection,
+              operation.x,
+              operation.y,
+              operation.width,
+              operation.height);
+          if (node->created) {
+            node->layoutBits |= kInsertLayout;
+          }
+        }
+        structural_.push_back(
+            {Structural::Insert,
+             node->surfaceId,
+             operation.tag,
+             operation.parentTag,
+             static_cast<std::int32_t>(operation.index),
+             node->info,
+             {}});
       }
     } else if constexpr (std::is_same_v<Operation, DirectPaddingOperation>) {
-      if (auto* node = find(operation.tag)) {
-        node->contentInsets = operation.insets;
-        refreshDerived(*node, operation.tag);
-        markDirty(*node, operation.tag);
-      }
-    } else if constexpr (std::is_same_v<
-                             Operation,
-                             DirectOverflowInsetOperation>) {
-      if (auto* node = find(operation.tag)) {
-        node->overflowInsets = operation.insets;
-        refreshDerived(*node, operation.tag);
-        markDirty(*node, operation.tag);
+      if (auto* node = find(operation.tag);
+          node != nullptr && node->insets != operation.insets) {
+        node->insets = operation.insets;
+        markDirty(*node, operation.tag, kInsets);
       }
     } else if constexpr (std::is_same_v<Operation, DirectLayoutOperation>) {
-      if (auto* node = find(operation.tag)) {
-        auto& metrics = node->view.layoutMetrics;
-        metrics.frame = {
-            {operation.x, operation.y}, {operation.width, operation.height}};
-        metrics.displayType = static_cast<DisplayType>(operation.displayType);
-        metrics.layoutDirection = operation.layoutDirection == 2
-            ? LayoutDirection::RightToLeft
-            : LayoutDirection::LeftToRight;
-        node->parent = operation.parentTag;
-        refreshDerived(*node, operation.tag);
-        markDirty(*node, operation.tag);
-      }
+      layout(
+          operation.tag,
+          operation.parentTag,
+          operation.displayType,
+          operation.layoutDirection,
+          operation.x,
+          operation.y,
+          operation.width,
+          operation.height);
     } else if constexpr (std::is_same_v<Operation, DirectDeleteOperation>) {
-      const auto tag = operation.tag;
-      if (replaced_.erase(tag) != 0) {
-        return;
+      if (replaced.count(operation.tag) == 0) {
+        retire(operation.tag);
       }
-      if (auto* node = find(tag)) {
-        if (node->created) {
-          deletes.push_back(ShadowViewMutation::DeleteMutation(node->sent));
-        }
-      }
-      drop(tag);
     }
+    // Overflow insets do not reach the Rust store.
   };
 
   for (const auto& phase : batch.phaseOperationIndexes) {
     for (const auto index : phase) {
-      std::visit(apply, batch.operations.at(index));
+      std::visit(apply, batch.operations[index]);
     }
   }
-  replaced_.clear();
-
-  std::vector<ShadowViewMutation> creates;
-  creates.reserve(created.size());
-  for (const auto tag : created) {
-    if (auto* node = find(tag)) {
-      creates.push_back(ShadowViewMutation::CreateMutation(node->view));
-      node->sent = node->view;
-      node->created = true;
-      node->dirty = false;
-      dirty_.erase(tag);
-    }
-  }
-  // An insert recorded its node's view before layout and state reached it;
-  // what the node holds now is what the mounting side must see.
-  for (auto& mutation : inserts) {
-    if (auto* node = find(mutation.newChildShadowView.tag)) {
-      mutation.newChildShadowView = node->view;
-      node->sent = node->view;
-    }
-  }
-
-  std::vector<ShadowViewMutation> structural;
-  structural.reserve(
-      removes.size() + deletes.size() + creates.size() + inserts.size());
-  for (auto* group : {&removes, &deletes, &creates, &inserts}) {
-    std::move(group->begin(), group->end(), std::back_inserter(structural));
-  }
-  flushLocked(std::move(leading), std::move(structural));
+  flushLocked();
 }
 
-// Delivers `structural` for the surface that owns it, followed by an update for
-// every node an effect or an operation changed since it was last delivered.
-void GpuiLoomHost::flushLocked(
-    std::vector<ShadowViewMutation>&& leading,
-    std::vector<ShadowViewMutation>&& structural) {
-  std::unordered_map<SurfaceId, ShadowViewMutationList> bySurface;
-  auto surfaceOf = [](const ShadowViewMutation& mutation) {
-    return mutation.type == ShadowViewMutation::Delete ||
-            mutation.type == ShadowViewMutation::Remove
-        ? mutation.oldChildShadowView.surfaceId
-        : mutation.newChildShadowView.surfaceId;
-  };
-  for (auto* group : {&leading, &structural}) {
-    for (auto& mutation : *group) {
-      bySurface[surfaceOf(mutation)].push_back(std::move(mutation));
-    }
+namespace {
+
+// Keeps a scratch vector's capacity for the next flush, unless a much larger
+// past flush left it: a large mount must not pin its peak.
+template <class T>
+void releaseScratch(std::vector<T>& scratch) {
+  constexpr size_t kKeep = 4096;
+  if (scratch.capacity() > kKeep && scratch.size() * 8 < scratch.capacity()) {
+    std::vector<T> smaller;
+    smaller.reserve(std::max(kKeep, scratch.size() * 2));
+    std::move(scratch.begin(), scratch.end(), std::back_inserter(smaller));
+    scratch = std::move(smaller);
   }
-  for (const auto tag : dirty_) {
-    auto* node = find(tag);
-    if (node == nullptr || !node->created) {
-      continue;
-    }
-    bySurface[node->surfaceId].push_back(ShadowViewMutation::UpdateMutation(
-        node->sent, node->view, node->parent));
-    node->sent = node->view;
-    node->dirty = false;
-  }
-  dirty_.clear();
+}
+
+} // namespace
+
+// Delivers the tree changes the operations recorded, then a create or an update
+// for every node that changed, as one batch per surface.
+void GpuiLoomHost::flushLocked() {
   flushScheduled_ = false;
-  std::vector<Tag> shown;
-  for (auto& [surfaceId, mutations] : bySurface) {
-    if (mutations.empty()) {
-      continue;
-    }
-    for (const auto& mutation : mutations) {
-      if (mutation.type == ShadowViewMutation::Create ||
-          mutation.type == ShadowViewMutation::Update) {
-        shown.push_back(mutation.newChildShadowView.tag);
+  // Taken out of the members, so a flush that runs inside this one (an event
+  // delivered synchronously) gets its own.
+  auto batches = std::move(batches_);
+  auto updates = std::move(updates_);
+  auto insertLayouts = std::move(insertLayouts_);
+  batches.clear();
+  updates.clear();
+  insertLayouts.clear();
+  const auto batchOf = [&](SurfaceId surfaceId) -> MountBatch& {
+    for (auto& [id, batch] : batches) {
+      if (id == surfaceId) {
+        return batch;
       }
     }
-    mountingManager_->applyMutations(surfaceId, mutations);
-  }
-  for (const auto tag : shown) {
-    if (auto* node = find(tag)) {
-      emitTextLayout(*node);
+    auto& batch =
+        batches.emplace_back(surfaceId, mountingManager_->beginBatch(surfaceId))
+            .second;
+    // At most one op per tree change and per changed node; sized once so a
+    // large mount does not grow the vector (and copy its ops) a dozen times.
+    if (batches.size() == 1) {
+      batch.ops.reserve(structural_.size() + dirtyTags_.size());
     }
+    return batch;
+  };
+  const bool observed = !gpuiExtensionHooks().mountObservers.empty();
+
+  const auto structuralOp = [&](Structural& entry) {
+    auto& ops = batchOf(entry.surfaceId).ops;
+    ops.emplace_back();
+    auto& op = ops.back();
+    op.kind = entry.kind == Structural::Remove ? MountKind::Remove
+        : entry.kind == Structural::Insert     ? MountKind::Insert
+                                               : MountKind::Delete;
+    op.tag = entry.tag;
+    op.parent_tag = entry.parent;
+    op.index = entry.index;
+    op.component = entry.info->opName;
+    op.host_index = -1;
+    if (entry.kind == Structural::Insert) {
+      if (auto* node = find(entry.tag)) {
+        op.frame = {
+            node->frame[0], node->frame[1], node->frame[2], node->frame[3]};
+        if (node->ext) {
+          op.extension_props_json = node->ext->sent;
+        }
+        if ((node->layoutBits & kInsertLayoutQueued) != 0) {
+          const auto dirty = node->dirty;
+          node->dirty = 0;
+          node->layoutBits &= kWaited;
+          op.layout_changed = (dirty & kFrame) != 0;
+          buildViewOp(*node, dirty, op);
+        }
+        if (observed) {
+          mountingManager_->notifyFrameChanged(
+              entry.surfaceId, lightView(*node, entry.tag));
+        }
+      }
+    } else if (entry.kind == Structural::Delete) {
+      op.extension_props_json = std::move(entry.json);
+      mountingManager_->notifyDeleted(entry.tag);
+    }
+  };
+
+  for (auto& entry : structural_) {
+    if (entry.kind == Structural::Remove) {
+      structuralOp(entry);
+    }
+  }
+  for (auto& entry : structural_) {
+    if (entry.kind == Structural::Delete) {
+      structuralOp(entry);
+    }
+  }
+
+  constexpr std::uint8_t kLayoutBits =
+      kFrame | kInsets | kDisplay | kDirection | kQueued;
+  std::vector<Tag> reports;
+  // The nodes that wait for their emitter stay queued, compacted to the front.
+  size_t held = 0;
+  for (size_t i = 0; i < dirtyTags_.size(); ++i) {
+    const auto tag = dirtyTags_[i];
+    auto* node = find(tag);
+    if (node == nullptr) {
+      continue;
+    }
+    if (node->created) {
+      // A view whose only change is its first frame has it applied by its
+      // insert.
+      if ((node->layoutBits & kInsertLayout) != 0 &&
+          node->info->kind == Kind::View && node->parsed == nullptr &&
+          (node->dirty & ~kLayoutBits) == 0) {
+        node->layoutBits |= kInsertLayoutQueued;
+        insertLayouts.push_back(tag);
+      } else {
+        updates.push_back(tag);
+      }
+    } else if (awaitsEmitter(*node)) {
+      node->layoutBits |= kWaited;
+      dirtyTags_[held++] = tag;
+    } else {
+      flushNode(*node, tag, batchOf(node->surfaceId), reports);
+    }
+  }
+  dirtyTags_.resize(held);
+  releaseScratch(dirtyTags_);
+
+  size_t carried = 0;
+  for (size_t i = 0; i < structural_.size(); ++i) {
+    auto& entry = structural_[i];
+    if (entry.kind != Structural::Insert) {
+      continue;
+    }
+    const auto* inserted = find(entry.tag);
+    const auto* parent = find(entry.parent);
+    if ((inserted != nullptr && !inserted->created) ||
+        (parent != nullptr && !parent->created)) {
+      if (carried != i) {
+        structural_[carried] = std::move(entry);
+      }
+      ++carried;
+      continue;
+    }
+    structuralOp(entry);
+  }
+  structural_.erase(
+      structural_.begin() + static_cast<std::ptrdiff_t>(carried),
+      structural_.end());
+  releaseScratch(structural_);
+  // An insert that waits for its parent leaves the frame to an update.
+  for (const auto tag : insertLayouts) {
+    if (auto* node = find(tag);
+        node != nullptr && (node->layoutBits & kInsertLayoutQueued) != 0) {
+      node->layoutBits &= static_cast<std::uint8_t>(~kInsertLayoutQueued);
+      updates.push_back(tag);
+    }
+  }
+
+  for (const auto tag : updates) {
+    if (auto* node = find(tag)) {
+      flushNode(*node, tag, batchOf(node->surfaceId), reports);
+    }
+  }
+
+  for (auto& [surfaceId, batch] : batches) {
+    if (!batch.ops.empty()) {
+      mountingManager_->submitBatch(surfaceId, std::move(batch));
+    }
+  }
+  batches.clear();
+  updates.clear();
+  insertLayouts.clear();
+  releaseScratch(updates);
+  releaseScratch(insertLayouts);
+  batches_ = std::move(batches);
+  updates_ = std::move(updates);
+  insertLayouts_ = std::move(insertLayouts);
+  for (const auto tag : reports) {
+    if (auto* node = find(tag)) {
+      reportTextLayout(*node, tag);
+    }
+  }
+}
+
+// A host component is created with its event emitter, which needs the instance
+// handle Loom registers; until it arrives the node, and what is inserted into
+// it, wait for one flush. After that it mounts without, and gets the emitter
+// with an update.
+bool GpuiLoomHost::awaitsEmitter(const Node& node) const {
+  return node.compat && node.compat->emitter == nullptr &&
+      node.info->host != nullptr && (node.layoutBits & kWaited) == 0;
+}
+
+// The extension props of an image, a scroll view, an input or a modal: its own
+// props and what the host knows of its state; for a compat component, what its
+// registered extractor makes of the typed props.
+std::string GpuiLoomHost::extensionJson(Node& node, Tag tag) {
+  if (node.info->kind == Kind::Compat) {
+    return (*node.info->hook)(node.info->name, lightView(node, tag));
+  }
+  auto& ext = *node.ext;
+  std::string extra;
+  if (node.info->kind == Kind::ScrollView && ext.hasScrollState) {
+    JsonBody state;
+    state.number("contentWidth", ext.content[0]);
+    state.number("contentHeight", ext.content[1]);
+    state.number("offsetX", ext.offset[0]);
+    state.number("offsetY", ext.offset[1]);
+    extra = state.body();
+  }
+  return closeJson(ext.body, extra);
+}
+
+// What a node sends: the whole view when its props changed, else only the
+// groups layout touched.
+void GpuiLoomHost::buildViewOp(Node& node, std::uint8_t dirty, MountOp& op) {
+  const bool create = op.kind == MountKind::Create;
+  const Size frameSize{node.frame[2], node.frame[3]};
+  const bool rtl = node.direction == 2;
+  const auto* deps = node.deps.get();
+  if (node.parsed != nullptr) {
+    op.props_changed = true;
+    op.view = std::move(*node.parsed);
+    node.parsed.reset();
+    op.view.content_insets = {
+        node.insets[0], node.insets[1], node.insets[2], node.insets[3]};
+    op.view.display_none = node.displayType == 0;
+    resolveLoomViewLayout(
+        op.view,
+        deps,
+        frameSize,
+        rtl,
+        kPatchRadii | kPatchWidths | kPatchTransform);
+  } else if (!create) {
+    std::uint8_t patch = 0;
+    if ((dirty & (kInsets | kDisplay)) != 0) {
+      patch |= kPatchInsets;
+      op.view.content_insets = {
+          node.insets[0], node.insets[1], node.insets[2], node.insets[3]};
+      op.view.display_none = node.displayType == 0;
+    }
+    if (deps != nullptr) {
+      std::uint8_t mask = 0;
+      if ((dirty & kFrame) != 0) {
+        mask |= (deps->radiiPercent ? kPatchRadii : 0) |
+            (deps->transform.operations.empty() &&
+                     !deps->transformOrigin.isSet()
+                 ? 0
+                 : kPatchTransform);
+      }
+      if ((dirty & kDirection) != 0 && deps->widthsDirectional) {
+        mask |= kPatchWidths;
+      }
+      if (mask != 0) {
+        resolveLoomViewLayout(op.view, deps, frameSize, rtl, mask);
+        patch |= mask;
+      }
+    }
+    op.layout_patch = patch;
+  }
+}
+
+void GpuiLoomHost::flushNode(
+    Node& node,
+    Tag tag,
+    MountBatch& batch,
+    std::vector<Tag>& reports) {
+  const bool create = !node.created;
+  const bool frameChanged = (node.dirty & kFrame) != 0;
+  const auto dirty = node.dirty;
+  node.dirty = 0;
+  node.layoutBits &= kWaited;
+  node.created = true;
+  const auto kind = node.info->kind;
+
+  batch.ops.emplace_back();
+  auto& op = batch.ops.back();
+  op.kind = create ? MountKind::Create : MountKind::Update;
+  op.tag = tag;
+  op.parent_tag = create ? -1 : node.parent;
+  op.index = -1;
+  op.component = node.info->opName;
+  op.host_index = -1;
+  op.frame = {node.frame[0], node.frame[1], node.frame[2], node.frame[3]};
+  op.layout_changed = create || frameChanged;
+  // What the extension props are made from: the node's props (parsed into
+  // `ext->body`), its state, and for a component with an extractor the frame.
+  const bool extChanged = create || node.parsed != nullptr ||
+      (dirty & kState) != 0 ||
+      (kind == Kind::Compat &&
+       ((dirty & kFrame) != 0 || node.compat->props != node.compat->sentProps ||
+        node.compat->state != node.compat->sentState));
+  buildViewOp(node, dirty, op);
+
+  if (node.ext) {
+    if (kind == Kind::Image) {
+      syncImage(node, tag);
+    }
+    if (extChanged) {
+      auto json = extensionJson(node, tag);
+      // The mounting side takes the extension props with a changed view, or
+      // with this patch alone.
+      if (!op.props_changed && json != node.ext->sent) {
+        op.layout_patch |= 32;
+      }
+      op.extension_props_json = json;
+      node.ext->sent = std::move(json);
+    } else {
+      op.extension_props_json = node.ext->sent;
+    }
+    if (kind == Kind::Modal) {
+      reportModal(node, tag, node.ext->visible);
+    }
+  }
+
+  if (kind == Kind::Paragraph) {
+    if (node.flags.onTextLayout) {
+      reports.push_back(tag);
+    }
+    if (create || (dirty & kText) != 0) {
+      op.has_paragraph = true;
+      if (node.text && node.text->string) {
+        op.paragraph = flattenParagraphText(
+            *node.text->string, node.text->attributes, node.flags.selectable);
+      } else {
+        op.paragraph.selectable = node.flags.selectable;
+      }
+      if (node.text && node.text->prepared) {
+        op.paragraph.prepared = rn_gpui_retain_prepared(
+            reinterpret_cast<std::uintptr_t>(node.text->prepared.get()));
+        op.paragraph.prepared_width = node.text->preparedWidth;
+      }
+      if (!node.flags.onTextLayout) {
+        node.text.reset();
+      }
+    } else if ((dirty & kSelectable) != 0) {
+      op.layout_patch |= 16;
+      op.paragraph.selectable = node.flags.selectable;
+    }
+  } else if (kind == Kind::TextInput) {
+    if (create || (dirty & kText) != 0 || op.props_changed) {
+      op.has_paragraph = true;
+      if (node.text && node.text->string) {
+        op.paragraph = flattenInputText(*node.text->string);
+      }
+      if (op.paragraph.fragments.empty()) {
+        op.paragraph.fragments.push_back(node.ext->fallback);
+      }
+    }
+  } else if (kind == Kind::Compat) {
+    auto& compat = *node.compat;
+    if (node.info->host != nullptr) {
+      const auto& entry = *node.info->host;
+      op.host_index = static_cast<std::int32_t>(entry.index);
+      if (create && compat.emitter == nullptr) {
+        compat.lateEmitter = true;
+        op.host_props_handle = rngpui::makeHostPropsHandle(compat.props);
+        rn_gpui_log(
+            2,
+            "loom: " + std::string(node.info->name) + " (tag " +
+                std::to_string(tag) +
+                ") mounts before its event target registered; it gets its "
+                "emitter when it does");
+      } else if (create) {
+        op.host_props_handle = rngpui::makeHostPropsHandle(compat.props);
+        op.host_emitter_handle = rngpui::makeHostEmitterHandle(compat.emitter);
+      } else if (compat.lateEmitter && compat.emitter != nullptr) {
+        compat.lateEmitter = false;
+        op.host_props_handle = rngpui::makeHostPropsHandle(compat.props);
+        op.host_emitter_handle = rngpui::makeHostEmitterHandle(compat.emitter);
+        op.host_changed = ~uint64_t{0};
+      } else if (
+          compat.sentProps && compat.props &&
+          compat.sentProps.get() != compat.props.get()) {
+        uint64_t inlineWords[2] = {0, 0};
+        std::vector<uint64_t> heapWords;
+        uint64_t* words = inlineWords;
+        if (entry.changeWords > 2) {
+          heapWords.assign(entry.changeWords, 0);
+          words = heapWords.data();
+        }
+        entry.changed(*compat.sentProps, *compat.props, words);
+        bool any = false;
+        for (uint32_t word = 0; word < entry.changeWords; ++word) {
+          any = any || words[word] != 0;
+        }
+        if (any) {
+          op.host_props_handle = rngpui::makeHostPropsHandle(compat.props);
+          op.host_changed = words[0];
+          for (uint32_t word = 1; word < entry.changeWords; ++word) {
+            op.host_changed_more.push_back(words[word]);
+          }
+        }
+      }
+    }
+    compat.sentProps = compat.props;
+    compat.sentState = compat.state;
+  }
+  if (!create && frameChanged && !gpuiExtensionHooks().mountObservers.empty()) {
+    mountingManager_->notifyFrameChanged(node.surfaceId, lightView(node, tag));
   }
 }
 
 // Fabric's paragraph reports its wrapped lines after each layout.
-void GpuiLoomHost::emitTextLayout(Node& node) {
-  const auto props =
-      std::dynamic_pointer_cast<const BaseParagraphProps>(node.view.props);
-  const auto state =
-      std::dynamic_pointer_cast<const ParagraphShadowNode::ConcreteState>(
-          node.view.state);
-  const auto emitter = std::dynamic_pointer_cast<const ParagraphEventEmitter>(
-      node.view.eventEmitter);
-  if (!props || !props->onTextLayout || !state || !emitter) {
+void GpuiLoomHost::reportTextLayout(Node& node, Tag tag) {
+  if (!node.text || !node.text->string) {
     return;
   }
-  const auto size = node.view.layoutMetrics.getContentFrame().size;
-  if (node.textLayoutState == state && node.textLayoutSize == size) {
+  auto& text = *node.text;
+  const Size size{node.frame[2], node.frame[3]};
+  if (text.reportedString == text.string && text.reportedSize == size) {
     return;
   }
-  node.textLayoutState = state;
-  node.textLayoutSize = size;
-  const auto& data = state->getData();
-  emitter->onTextLayout(text_.layoutManager()->measureLines(
-      AttributedStringBox{data.attributedString},
-      data.paragraphAttributes,
-      size));
+  text.reportedString = text.string;
+  text.reportedSize = size;
+  folly::dynamic lines = folly::dynamic::array();
+  for (const auto& line : text_.layoutManager()->measureLines(
+           AttributedStringBox{*text.string}, text.attributes, size)) {
+    lines.push_back(folly::dynamic::object("text", line.text)(
+        "x", line.frame.origin.x)("y", line.frame.origin.y)(
+        "width", line.frame.size.width)("height", line.frame.size.height)(
+        "descender", line.descender)("capHeight", line.capHeight)(
+        "ascender", line.ascender)("xHeight", line.xHeight));
+  }
+  dispatchTargetEvent(
+      tag, "topTextLayout", folly::dynamic::object("lines", std::move(lines)));
 }
 
 void GpuiLoomHost::scheduleFlush() {
@@ -558,14 +1424,22 @@ void GpuiLoomHost::scheduleFlush() {
     return;
   }
   flushScheduled_ = true;
-  dispatchMain([weak = weak_from_this()] {
+  postToLoomUI([weak = weak_from_this()] {
     if (auto self = weak.lock()) {
       std::lock_guard<std::recursive_mutex> lock(self->mutex_);
       if (self->flushScheduled_) {
-        self->flushLocked({}, {});
+        self->flushLocked();
       }
     }
   });
+}
+
+void GpuiLoomHost::runOnUIThread(std::function<void()> task) {
+  if (loomUIIsMountThread()) {
+    MountThread::shared().post(std::move(task));
+  } else {
+    task();
+  }
 }
 
 void GpuiLoomHost::failSurface(SurfaceId surfaceId, const std::string& reason) {
@@ -575,6 +1449,21 @@ void GpuiLoomHost::failSurface(SurfaceId surfaceId, const std::string& reason) {
 void GpuiLoomHost::updateViewProps(Tag tag, const folly::dynamic& props) {
   LoomBinding::recordNativeProps(tag, props);
   mountingManager_->synchronouslyUpdateViewOnUIThread(tag, props);
+}
+
+std::optional<GpuiMountingManager::AnimatedGeometry>
+GpuiLoomHost::animatedGeometry(Tag tag) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  const auto* node = find(tag);
+  if (node == nullptr) {
+    return std::nullopt;
+  }
+  GpuiMountingManager::AnimatedGeometry geometry{
+      {node->frame[2], node->frame[3]}, {}};
+  if (node->deps) {
+    geometry.transformOrigin = node->deps->transformOrigin;
+  }
+  return geometry;
 }
 
 void GpuiLoomHost::registerEventTarget(
@@ -588,12 +1477,54 @@ void GpuiLoomHost::registerEventTarget(
   if (!ensureScheduler()) {
     return;
   }
-  instanceHandles_[tag] = instanceHandle;
-  eventManager_->registerTarget(surfaceId, tag, instanceHandle);
-  if (auto* node = find(tag)) {
-    node->view.eventEmitter = makeEmitter(*node, tag);
-    mountingManager_->setEventEmitter(tag, node->view.eventEmitter);
-    markDirty(*node, tag);
+  std::shared_ptr<LoomEventManager> manager;
+  {
+    std::lock_guard<std::mutex> events(eventMutex_);
+    instanceHandles_[tag] = {surfaceId, instanceHandle};
+    manager = eventManager_;
+  }
+  manager->registerTarget(surfaceId, tag, instanceHandle);
+  std::optional<EarlyLayout> early;
+  std::vector<std::pair<std::string, folly::dynamic>> pending;
+  {
+    std::lock_guard<std::mutex> events(eventMutex_);
+    if (const auto found = earlyLayouts_.find(tag);
+        found != earlyLayouts_.end()) {
+      early = found->second;
+      earlyLayouts_.erase(found);
+    }
+    if (const auto found = pendingEvents_.find(tag);
+        found != pendingEvents_.end()) {
+      pending = std::move(found->second);
+      pendingEvents_.erase(found);
+    }
+  }
+  for (auto& [type, payload] : pending) {
+    manager->dispatch(
+        surfaceId,
+        tag,
+        type,
+        std::move(payload),
+        RawEvent::Category::Unspecified,
+        false,
+        HighResTimeStamp::now());
+  }
+  if (early) {
+    manager->dispatch(
+        surfaceId,
+        tag,
+        "topLayout",
+        folly::dynamic::object(
+            "layout",
+            folly::dynamic::object("x", early->x)("y", early->y)(
+                "width", early->width)("height", early->height)),
+        RawEvent::Category::Unspecified,
+        false,
+        HighResTimeStamp::now());
+  }
+  if (auto* node = find(tag); node != nullptr && node->compat) {
+    node->compat->emitter = makeEmitter(*node, tag);
+    markDirty(*node, tag, 0);
     scheduleFlush();
   }
 }
@@ -603,23 +1534,53 @@ void GpuiLoomHost::registerEventTarget(
 // the node, so they are disabled (which drops their event target), and the
 // references this host holds are released on the JavaScript thread.
 void GpuiLoomHost::unregisterEventTarget(SurfaceId surfaceId, Tag tag) {
-  std::lock_guard<std::recursive_mutex> lock(mutex_);
-  auto manager = eventManager_;
-  auto handle = std::move(instanceHandles_[tag]);
-  instanceHandles_.erase(tag);
-  ShadowNodeFamily::Shared family;
-  if (const auto found = families_.find(tag); found != families_.end()) {
-    family = std::move(found->second);
-    families_.erase(found);
-    family->getEventEmitter()->setEnabled(false);
+  unregisterEventTargets(surfaceId, {tag});
+}
+
+void GpuiLoomHost::unregisterEventTargets(
+    SurfaceId surfaceId,
+    const std::vector<Tag>& tags) {
+  struct Released {
+    Tag tag;
+    InstanceHandle::Shared handle;
+    ShadowNodeFamily::Shared family;
+    std::shared_ptr<facebook::react::EventTarget> wheelTarget;
+  };
+  std::vector<Released> released;
+  released.reserve(tags.size());
+  std::shared_ptr<LoomEventManager> manager;
+  {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    std::lock_guard<std::mutex> events(eventMutex_);
+    manager = eventManager_;
+    for (const auto tag : tags) {
+      pendingEvents_.erase(tag);
+      Released target{tag, nullptr, nullptr, nullptr};
+      if (const auto found = instanceHandles_.find(tag);
+          found != instanceHandles_.end()) {
+        target.handle = std::move(found->second.handle);
+        instanceHandles_.erase(found);
+      }
+      if (const auto found = wheelTargets_.find(tag);
+          found != wheelTargets_.end()) {
+        target.wheelTarget = std::move(found->second);
+        wheelTargets_.erase(found);
+      }
+      if (const auto found = families_.find(tag); found != families_.end()) {
+        target.family = std::move(found->second);
+        families_.erase(found);
+        target.family->getEventEmitter()->setEnabled(false);
+      }
+      released.push_back(std::move(target));
+    }
   }
-  jsAccess_([manager = std::move(manager),
-             handle = std::move(handle),
-             family = std::move(family),
-             surfaceId,
-             tag] {
+  jsAccess_([surfaceId,
+             manager = std::move(manager),
+             released = std::move(released)] {
     if (manager) {
-      manager->unregisterTarget(surfaceId, tag);
+      for (const auto& target : released) {
+        manager->unregisterTarget(surfaceId, target.tag);
+      }
     }
   });
 }
@@ -633,7 +1594,7 @@ void GpuiLoomHost::dispatchEvent(
     bool unique) {
   std::shared_ptr<LoomEventManager> manager;
   {
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    std::lock_guard<std::mutex> events(eventMutex_);
     manager = eventManager_;
   }
   if (manager) {
@@ -648,17 +1609,130 @@ void GpuiLoomHost::dispatchEvent(
   }
 }
 
+// An event from the GPUI side goes the way Loom's own events do, to the target
+// registered for the tag.
+void GpuiLoomHost::dispatchTargetEvent(
+    Tag tag,
+    const std::string& type,
+    folly::dynamic&& payload) {
+  std::shared_ptr<LoomEventManager> manager;
+  SurfaceId surfaceId;
+  {
+    std::lock_guard<std::mutex> events(eventMutex_);
+    const auto found = instanceHandles_.find(tag);
+    if (!eventManager_) {
+      return;
+    }
+    if (found == instanceHandles_.end()) {
+      auto& queue = pendingEvents_[tag];
+      if (queue.size() < 16) {
+        queue.emplace_back(type, std::move(payload));
+      }
+      return;
+    }
+    surfaceId = found->second.surfaceId;
+    manager = eventManager_;
+  }
+  manager->dispatch(
+      surfaceId,
+      tag,
+      type,
+      std::move(payload),
+      RawEvent::Category::Unspecified,
+      false,
+      HighResTimeStamp::now());
+}
+
+// An event from the GPUI side goes the way Loom's own events do, to the target
+// registered for the tag.
+void GpuiLoomHost::dispatchNativeEvent(
+    Tag tag,
+    const std::string& type,
+    folly::dynamic&& payload) {
+  std::shared_ptr<LoomEventManager> manager;
+  SurfaceId surfaceId;
+  {
+    std::lock_guard<std::mutex> events(eventMutex_);
+    const auto found = instanceHandles_.find(tag);
+    if (found == instanceHandles_.end() || !eventManager_) {
+      // The node mounts before Loom registers its target; the layout it was
+      // given at mount is what React is waiting for.
+      if (type == "topLayout" && payload.isObject()) {
+        if (const auto* layout = payload.get_ptr("layout");
+            layout != nullptr && layout->isObject()) {
+          const auto number = [&](const char* key) {
+            const auto* value = layout->get_ptr(key);
+            return value != nullptr && value->isNumber()
+                ? static_cast<float>(value->asDouble())
+                : 0.f;
+          };
+          earlyLayouts_[tag] = {
+              number("x"), number("y"), number("width"), number("height")};
+        }
+      }
+      return;
+    }
+    surfaceId = found->second.surfaceId;
+    manager = eventManager_;
+  }
+  // Only the latest scroll position matters: a queued scroll event that JS has
+  // not handled yet is replaced rather than piled up behind.
+  manager->dispatch(
+      surfaceId,
+      tag,
+      EventEmitter::normalizeEventType(type),
+      std::move(payload),
+      RawEvent::Category::Unspecified,
+      type == "topScroll",
+      HighResTimeStamp::now());
+}
+
+void GpuiLoomHost::dispatchNativeWheel(
+    Tag tag,
+    std::uint64_t id,
+    folly::dynamic&& payload) {
+  std::shared_ptr<facebook::react::EventTarget> target;
+  EventDispatcher::Weak dispatcher;
+  {
+    std::lock_guard<std::mutex> events(eventMutex_);
+    const auto entry = instanceHandles_.find(tag);
+    if (entry == instanceHandles_.end()) {
+      rn_gpui_on_wheel_done(id, false);
+      return;
+    }
+    auto& wheel = wheelTargets_[tag];
+    if (!wheel) {
+      wheel = std::make_shared<facebook::react::EventTarget>(
+          entry->second.handle, entry->second.surfaceId);
+      wheel->setEnabled(true);
+    }
+    target = wheel;
+    dispatcher = eventDispatcher_;
+  }
+  GpuiMountingManager::dispatchWheelTo(
+      EventEmitter(std::move(target), std::move(dispatcher)),
+      id,
+      std::move(payload));
+}
+
 void GpuiLoomHost::updateComponentState(
     SurfaceId /*surfaceId*/,
     Tag tag,
     const std::shared_ptr<const State>& state) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (viewless_.count(tag) != 0) {
+    return;
+  }
   if (auto* node = find(tag)) {
-    node->view.state = state;
-    markDirty(*node, tag);
-    scheduleFlush();
+    mountingManager_->setComponentState(
+        tag, node->info->name, node->info->handle, state);
+    if (node->compat) {
+      node->compat->state = state;
+      markDirty(*node, tag, kState);
+      scheduleFlush();
+    }
   } else {
-    pendingStates_[tag] = state;
+    pendingEffects_[tag].state = state;
   }
 }
 
@@ -666,34 +1740,39 @@ void GpuiLoomHost::updateTextState(const LoomTextStateUpdate& update) {
   if (update.attributedString == nullptr) {
     return;
   }
-  State::Shared state;
-  if (update.kind == LoomTextStateKind::Text ||
-      update.kind == LoomTextStateKind::Paragraph) {
-    state = std::make_shared<const ParagraphShadowNode::ConcreteState>(
-        std::make_shared<const ParagraphState>(ParagraphState{
-            .attributedString = *update.attributedString,
-            .paragraphAttributes = update.paragraphAttributes,
-            .layoutManager = text_.layoutManager()}),
-        ShadowNodeFamily::Weak{});
-  } else if (update.kind == LoomTextStateKind::TextInput) {
-    state = std::make_shared<const ConcreteState<TextInputState>>(
-        std::make_shared<const TextInputState>(TextInputState{
-            AttributedStringBox{*update.attributedString},
-            AttributedString{},
-            update.paragraphAttributes,
-            update.mostRecentEventCount}),
-        ShadowNodeFamily::Weak{});
-  } else {
+  if (update.kind != LoomTextStateKind::Text &&
+      update.kind != LoomTextStateKind::Paragraph &&
+      update.kind != LoomTextStateKind::SelectableParagraph &&
+      update.kind != LoomTextStateKind::TextInput) {
     return;
   }
   std::lock_guard<std::recursive_mutex> lock(mutex_);
-  if (auto* node = find(update.tag)) {
-    node->view.state = std::move(state);
-    markDirty(*node, update.tag);
-    scheduleFlush();
-  } else {
-    pendingStates_[update.tag] = std::move(state);
+  if (viewless_.count(update.tag) != 0) {
+    return;
   }
+  auto text = std::make_unique<TextData>();
+  text->string = update.attributedString;
+  text->attributes = update.paragraphAttributes;
+  if (update.prepared.valid && update.prepared.preparedLayout) {
+    text->prepared = update.prepared.preparedLayout;
+    text->preparedWidth = update.prepared.size.width;
+  }
+  auto* node = find(update.tag);
+  if (node == nullptr) {
+    pendingEffects_[update.tag].text = std::move(text);
+    return;
+  }
+  const auto kind = node->info->kind;
+  if (kind != Kind::Paragraph && kind != Kind::TextInput) {
+    return;
+  }
+  if (node->text) {
+    text->reportedString = std::move(node->text->reportedString);
+    text->reportedSize = node->text->reportedSize;
+  }
+  node->text = std::move(text);
+  markDirty(*node, update.tag, kText);
+  scheduleFlush();
 }
 
 void GpuiLoomHost::updateScrollContentBounds(
@@ -702,33 +1781,46 @@ void GpuiLoomHost::updateScrollContentBounds(
     const folly::dynamic& props,
     const Rect& bounds) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
-  Point offset{};
-  if (const auto live = scrollOffsets_.find(tag);
-      live != scrollOffsets_.end()) {
-    offset = {live->second.first, live->second.second};
+  std::array<float, 2> offset{};
+  std::optional<std::pair<float, float>> live;
+  {
+    std::lock_guard<std::mutex> scroll(scrollMutex_);
+    if (const auto found = scrollOffsets_.find(tag);
+        found != scrollOffsets_.end()) {
+      live = found->second;
+    }
+  }
+  if (live) {
+    offset = {live->first, live->second};
   } else if (props.isObject() && props.count("contentOffset") != 0) {
     const auto& requested = props["contentOffset"];
     if (requested.isObject()) {
       const auto* x = requested.get_ptr("x");
       const auto* y = requested.get_ptr("y");
       if (x != nullptr && x->isNumber()) {
-        offset.x = static_cast<Float>(x->asDouble());
+        offset[0] = static_cast<float>(x->asDouble());
       }
       if (y != nullptr && y->isNumber()) {
-        offset.y = static_cast<Float>(y->asDouble());
+        offset[1] = static_cast<float>(y->asDouble());
       }
     }
   }
-  auto state = std::make_shared<const ScrollViewShadowNode::ConcreteState>(
-      std::make_shared<const ScrollViewState>(
-          ScrollViewState{offset, bounds, 0}),
-      ShadowNodeFamily::Weak{});
+  const auto content =
+      ScrollViewState{{offset[0], offset[1]}, bounds, 0}.getContentSize();
+  const std::array<float, 2> size{content.width, content.height};
   if (auto* node = find(tag)) {
-    node->view.state = std::move(state);
-    markDirty(*node, tag);
-    scheduleFlush();
+    if (node->ext) {
+      node->ext->hasScrollState = true;
+      node->ext->offset = offset;
+      node->ext->content = size;
+      markDirty(*node, tag, kState);
+      scheduleFlush();
+    }
   } else {
-    pendingStates_[tag] = std::move(state);
+    auto& pending = pendingEffects_[tag];
+    pending.hasScrollState = true;
+    pending.offset = offset;
+    pending.content = size;
   }
 }
 
@@ -737,22 +1829,24 @@ void GpuiLoomHost::dispatchCommand(
     Tag tag,
     const std::string& commandName,
     const folly::dynamic& args) {
-  ShadowView view;
+  std::string_view name;
+  ComponentHandle handle{};
   {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    auto* node = find(tag);
+    const auto* node = find(tag);
     if (node == nullptr) {
       return;
     }
-    view = node->view;
+    name = node->info->name;
+    handle = node->info->handle;
   }
-  mountingManager_->dispatchCommand(view, commandName, args);
+  mountingManager_->dispatchCommand(tag, name, handle, commandName, args);
 }
 
 std::pair<float, float> GpuiLoomHost::getScrollOffset(
     SurfaceId /*surfaceId*/,
     Tag tag) {
-  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  std::lock_guard<std::mutex> scroll(scrollMutex_);
   const auto found = scrollOffsets_.find(tag);
   return found == scrollOffsets_.end() ? std::pair<float, float>{0, 0}
                                        : found->second;
@@ -761,46 +1855,45 @@ std::pair<float, float> GpuiLoomHost::getScrollOffset(
 std::optional<std::pair<float, float>> GpuiLoomHost::getViewLocationInSurface(
     SurfaceId /*surfaceId*/,
     Tag tag) {
-  std::lock_guard<std::recursive_mutex> lock(mutex_);
-  auto* node = find(tag);
-  if (node == nullptr || !node->created) {
+  std::lock_guard<std::mutex> lock(scrollMutex_);
+  const auto placed = [&](Tag at) -> const Node* {
+    const auto found = nodes_.find(at);
+    return found != nodes_.end() && found->second.laidOut ? &found->second
+                                                          : nullptr;
+  };
+  const auto* node = placed(tag);
+  if (node == nullptr) {
     return std::nullopt;
   }
   float x = 0;
   float y = 0;
-  Tag current = tag;
   // The frames are relative to the parent; a scrolled ancestor moves what it
   // holds by its offset.
   for (int depth = 0; node != nullptr && depth < 4096; ++depth) {
-    const auto& frame = node->view.layoutMetrics.frame;
-    x += frame.origin.x;
-    y += frame.origin.y;
-    current = node->parent;
-    if (const auto offset = scrollOffsets_.find(current);
+    x += node->frame[0];
+    y += node->frame[1];
+    const auto parent = node->parent;
+    if (const auto offset = scrollOffsets_.find(parent);
         offset != scrollOffsets_.end()) {
       x -= offset->second.first;
       y -= offset->second.second;
     }
-    node = find(current);
+    node = placed(parent);
   }
   return std::pair<float, float>{x, y};
 }
 
 void GpuiLoomHost::setScrollOffset(Tag tag, float x, float y) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
-  scrollOffsets_[tag] = {x, y};
-  if (auto* node = find(tag)) {
-    if (const auto state = std::dynamic_pointer_cast<
-            const ScrollViewShadowNode::ConcreteState>(node->view.state)) {
-      const auto& data = state->getData();
-      node->view.state =
-          std::make_shared<const ScrollViewShadowNode::ConcreteState>(
-              std::make_shared<const ScrollViewState>(ScrollViewState{
-                  {x, y}, data.contentBoundingRect, data.scrollAwayPaddingTop}),
-              ShadowNodeFamily::Weak{});
-      markDirty(*node, tag);
-      scheduleFlush();
-    }
+  {
+    std::lock_guard<std::mutex> scroll(scrollMutex_);
+    scrollOffsets_[tag] = {x, y};
+  }
+  if (auto* node = find(tag);
+      node != nullptr && node->ext && node->ext->hasScrollState) {
+    node->ext->offset = {x, y};
+    markDirty(*node, tag, kState);
+    scheduleFlush();
   }
 }
 
@@ -819,14 +1912,14 @@ std::optional<Size> GpuiLoomHost::surfaceContentSize(SurfaceId surfaceId) {
   return runtime->latest().surfaceSize(surfaceId);
 }
 
-// Called with the JavaScript thread stopped and its runtime still alive: the
-// Rust store holds these emitters until it drops the old tree, which is after
-// the runtime is gone, so they let go of their event targets here.
 void GpuiLoomHost::begin() {
   std::unique_lock<std::shared_mutex> alive(lifetimeMutex_);
   alive_ = true;
 }
 
+// Called with the JavaScript thread stopped and its runtime still alive: the
+// Rust store holds typed emitters until it drops the old tree, which is after
+// the runtime is gone, so they let go of their event targets here.
 void GpuiLoomHost::reset() {
   {
     std::unique_lock<std::shared_mutex> alive(lifetimeMutex_);
@@ -836,16 +1929,39 @@ void GpuiLoomHost::reset() {
   for (const auto& [tag, family] : families_) {
     family->getEventEmitter()->setEnabled(false);
   }
+  for (const auto& [tag, observation] : imageObservations_) {
+    observation.coordinator->removeObserver(observation.observer);
+  }
+  imageObservations_.clear();
+  for (const auto& [tag, node] : nodes_) {
+    mountingManager_->clearComponentState(tag);
+  }
   registry_ = nullptr;
-  eventManager_ = nullptr;
-  nodes_.clear();
+  components_.clear();
+  {
+    std::lock_guard<std::mutex> events(eventMutex_);
+    pendingEvents_.clear();
+    eventManager_ = nullptr;
+    eventDispatcher_.reset();
+    instanceHandles_.clear();
+    wheelTargets_.clear();
+    earlyLayouts_.clear();
+  }
+  decltype(nodes_) nodes;
+  {
+    std::lock_guard<std::mutex> scroll(scrollMutex_);
+    nodes.swap(nodes_);
+    scrollOffsets_.clear();
+  }
+  nodes.clear();
   viewless_.clear();
-  replaced_.clear();
-  dirty_.clear();
-  instanceHandles_.clear();
+  dirtyTags_ = {};
+  structural_ = {};
+  batches_ = {};
+  updates_ = {};
+  insertLayouts_ = {};
   families_.clear();
-  pendingStates_.clear();
-  scrollOffsets_.clear();
+  pendingEffects_.clear();
   flushScheduled_ = false;
 }
 

@@ -5,6 +5,7 @@ All notable changes to `@react-native-gpui/testing` are listed here. Each versio
 ## Unreleased
 
 - A `waitForIdle` the app does not answer in time reports what it was doing: the busy sources if `idleStatus` answers, or that the main thread is stalled, and the last lines of the app's log.
+- `waitForIdle` waits for a Rust module promise call made in the last second that has not settled, such as `DesktopWindow.open()` while the window is being created; `ignore: ['modules']` skips them. The native side of this is in `@react-native-gpui/core`.
 
 ## 0.87.0-alpha.2 - 2026-11-16
 

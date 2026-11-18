@@ -636,34 +636,34 @@ impl ViewStore {
         let commands: std::sync::Arc<std::sync::Mutex<Vec<crate::extensions::Command>>> =
             Default::default();
         let handle = crate::extensions::StoreHandle::queued(store, commands.clone());
-        let batch_view = crate::extensions::BatchView {
-            surface_id,
-            ops: batch
-                .ops
-                .iter()
-                .map(|op| crate::extensions::BatchOp {
-                    kind: match op.kind {
-                        MountKind::Create => crate::extensions::BatchOpKind::Create,
-                        MountKind::Delete => crate::extensions::BatchOpKind::Delete,
-                        MountKind::Insert => crate::extensions::BatchOpKind::Insert,
-                        MountKind::Remove => crate::extensions::BatchOpKind::Remove,
-                        MountKind::Update => crate::extensions::BatchOpKind::Update,
-                        _ => crate::extensions::BatchOpKind::Update,
-                    },
-                    tag: op.tag,
-                    parent_tag: op.parent_tag,
-                    index: op.index,
-                    component: op.component.clone(),
-                    props: std::sync::Arc::new(crate::extensions::parse_extension_props(
-                        &op.extension_props_json,
-                    )),
-                    props_changed: op.props_changed,
-                })
-                .collect(),
-        };
         let host_reports = self.host_reports.clone();
         let observers = crate::extensions::store_observers();
         if !observers.is_empty() {
+            let batch_view = crate::extensions::BatchView {
+                surface_id,
+                ops: batch
+                    .ops
+                    .iter()
+                    .map(|op| crate::extensions::BatchOp {
+                        kind: match op.kind {
+                            MountKind::Create => crate::extensions::BatchOpKind::Create,
+                            MountKind::Delete => crate::extensions::BatchOpKind::Delete,
+                            MountKind::Insert => crate::extensions::BatchOpKind::Insert,
+                            MountKind::Remove => crate::extensions::BatchOpKind::Remove,
+                            MountKind::Update => crate::extensions::BatchOpKind::Update,
+                            _ => crate::extensions::BatchOpKind::Update,
+                        },
+                        tag: op.tag,
+                        parent_tag: op.parent_tag,
+                        index: op.index,
+                        component: op.component.to_owned(),
+                        props: std::sync::Arc::new(crate::extensions::parse_extension_props(
+                            &op.extension_props_json,
+                        )),
+                        props_changed: op.props_changed,
+                    })
+                    .collect(),
+            };
             for observer in &observers {
                 let tree = self.tree_view(cx);
                 observer.before_batch(&batch_view, &tree, &handle, cx);
@@ -761,6 +761,9 @@ impl ViewStore {
                         log::warn!("[store] insert of unknown tag {}", op.tag);
                         continue;
                     };
+                    if op.layout_changed || op.layout_patch != 0 {
+                        child.update(cx, |child, _cx| child.apply_insert_layout(op));
+                    }
                     {
                         let node = child.read(cx);
                         let is_visible_portal = crate::extensions::component_portal(
@@ -917,6 +920,7 @@ impl ViewStore {
                             !op.props_changed
                                 && !op.has_paragraph
                                 && !op.layout_changed
+                                && op.layout_patch == 0
                                 && op.host_changed == 0
                                 && op.host_changed_more.iter().all(|word| *word == 0)
                                 && op.host_props_handle == 0
@@ -1524,6 +1528,7 @@ mod test_app_context_tests {
             has_paragraph: false,
             paragraph: ParagraphFlat::default(),
             layout_changed: false,
+            layout_patch: 0,
         }
     }
 
@@ -1589,7 +1594,7 @@ mod test_app_context_tests {
         });
     }
 
-    fn create(tag: i32, component: &str) -> MountOp {
+    fn create(tag: i32, component: &'static str) -> MountOp {
         let mut create = op(MountKind::Create);
         create.tag = tag;
         create.component = component.into();
