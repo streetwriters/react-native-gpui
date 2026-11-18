@@ -627,20 +627,25 @@ export class DesktopApp {
   async waitForIdle(options: IdleOptions = {}): Promise<void> {
     const timeout = options.timeout ?? this.idleOptions.timeout ?? 5_000;
     const ignore = options.ignore ?? this.idleOptions.ignore ?? [];
-    const result = await this.request<{
+    const ignoreUrls = options.ignoreUrls ?? this.idleOptions.ignoreUrls ?? [];
+    let result: {
       idle: boolean;
       stableFrames: number;
       busySources: Array<{ source: string; detail: string }>;
       untrackedSources: string[];
-    }>(
-      'waitForIdle',
-      {
-        timeout,
-        ignore,
-        ignoreUrls: options.ignoreUrls ?? this.idleOptions.ignoreUrls ?? [],
-      },
-      Math.min(35_000, timeout + 1_000),
-    );
+    };
+    try {
+      result = await this.request(
+        'waitForIdle',
+        { timeout, ignore, ignoreUrls },
+        Math.min(35_000, timeout + 1_000),
+      );
+    } catch (error) {
+      if (!String(error).includes('timed out')) throw error;
+      throw new Error(
+        `${(error as Error).message}; ${await this.describeStall(ignore, ignoreUrls)}`,
+      );
+    }
     if (!result.idle)
       throw new Error(
         `GPUI did not become idle after ${timeout} ms; busy: ${
@@ -649,6 +654,29 @@ export class DesktopApp {
             .join(', ') || `${result.stableFrames ?? 0}/2 stable frames`
         }; untracked: ${(result.untrackedSources ?? []).join(', ')}`,
       );
+  }
+
+  /** What the app was doing when it did not answer a request: its idle status if it answers one now, and the end of its log. */
+  private async describeStall(
+    ignore: readonly string[],
+    ignoreUrls: readonly string[],
+  ): Promise<string> {
+    let status: string;
+    try {
+      const idle = await this.request<{
+        busySources?: Array<{ source: string; detail: string }>;
+        stableFrames?: number;
+      }>('idleStatus', { ignore, ignoreUrls }, 3_000);
+      status = `idleStatus answers; busy: ${
+        (idle.busySources ?? [])
+          .map(source => `${source.source}: ${source.detail}`)
+          .join(', ') || `${idle.stableFrames ?? 0}/2 stable frames`
+      }`;
+    } catch {
+      status = 'idleStatus does not answer either (the main thread is stalled)';
+    }
+    const tail = this.readLogs().trimEnd().split('\n').slice(-12).join('\n');
+    return `${status}\nlast app log lines:\n${tail}`;
   }
 
   async setAnimationsEnabled(enabled: boolean): Promise<void> {
