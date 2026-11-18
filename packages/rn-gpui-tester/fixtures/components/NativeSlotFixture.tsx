@@ -62,7 +62,11 @@ export default function NativeSlotFixture() {
           alignContent: 'flex-start',
         }}
       >
-        <Text testID="slot-log">{`log:${log}`}</Text>
+        {/* Fixed size: a growing log would widen this column and move the
+            native trees beside it between a press's down and up. */}
+        <Text testID="slot-log" numberOfLines={1} style={{ width: 240 }}>
+          {`log:${log}`}
+        </Text>
         <View style={{ width: 240, height: 400 }}>
           <NativeRoot testID="slot-root" style={{ width: 240, height: 400 }}>
             <Box direction="column">

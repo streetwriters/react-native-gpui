@@ -202,6 +202,9 @@ async function run(options) {
       Number(options.depth ?? 0),
     );
     try {
+      // The GPU driver holds about 100 MB of working memory until a second
+      // after the last frame; wait for it so the baseline is the settled one.
+      await sleep(2500);
       const idle = await sample(app, rusage);
       const cyclesOut = [];
       for (let i = 0; i < cycles; i++) {

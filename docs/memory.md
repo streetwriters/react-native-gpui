@@ -21,7 +21,9 @@ The renderer's share does not grow with the depth of the tree. After the tree is
 
 ## Fixed costs
 
-With a 1024×768 window and nothing mounted, the tester's physical footprint is about 180 MB. Most of it is graphics memory: about 100 MB the GPU driver and the renderer's Metal buffers hold, and 25–35 MB for the window's drawable surfaces (12.6 MB each at this size). The heap is about 13 MB. The asset catalogs, ICU data and the Metal shader cache that a process maps are file-backed and clean, so they do not count toward the footprint.
+With a 1024×768 window and nothing mounted, the tester's physical footprint settles at about 65 MB: 36 MB for the window's drawable surfaces (12.6 MB each at this size, three of them), about 12 MB of heap and the rest the process's own mappings. The asset catalogs, ICU data and the Metal shader cache that a process maps are file-backed and clean, so they do not count toward the footprint.
+
+While the window is drawing, the footprint is about 100 MB higher. That is the GPU driver's working memory for rendering, which any process using Metal gets from its first render pass (a program that only clears a texture holds the same), and the driver gives it back about a second after the last frame. A window that draws at least once a second, such as one with a blinking caret or a running animation, keeps it.
 
 ## Measuring it
 
