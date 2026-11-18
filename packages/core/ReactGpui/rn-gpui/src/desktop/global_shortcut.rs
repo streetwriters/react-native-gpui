@@ -317,7 +317,7 @@ fn hotkey_for(keys: &str) -> Result<HotKey, String> {
         modifiers |= Modifiers::SHIFT;
     }
     if keystroke.modifiers.platform {
-        modifiers |= Modifiers::SUPER;
+        modifiers |= Modifiers::META;
     }
     if keystroke.modifiers.function {
         return Err("a global shortcut cannot use the fn key".to_string());
