@@ -6,6 +6,7 @@
 
 #include <jsi/jsi.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -22,6 +23,12 @@ class TurboModule;
 } // namespace facebook::react
 
 namespace rngpui {
+// Set by core when the renderer provides a frame source for the backend.
+inline std::atomic<bool>& sharedAnimatedBackend() {
+  static std::atomic<bool> enabled{false};
+  return enabled;
+}
+
 class GpuiFeatureFlagsOverrides
     : public facebook::react::ReactNativeFeatureFlagsOverridesOSSStable {
  public:
@@ -52,10 +59,10 @@ class GpuiFeatureFlagsOverrides
     return true;
   }
 
-  // The shared animation backend needs a platform frame source that this
-  // platform does not provide; Loom's defaults turn it on.
+  // The shared animation backend needs a platform frame source: only the Loom
+  // renderer provides one.
   bool useSharedAnimatedBackend() override {
-    return false;
+    return sharedAnimatedBackend().load(std::memory_order_acquire);
   }
 };
 

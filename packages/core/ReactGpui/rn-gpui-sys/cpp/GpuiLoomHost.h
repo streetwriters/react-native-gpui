@@ -14,6 +14,7 @@
 #include "GpuiMountingManager.h"
 
 #include <react/loom/Loom.h>
+#include <react/renderer/animationbackend/AnimationChoreographer.h>
 #include <react/renderer/componentregistry/ComponentDescriptorRegistry.h>
 #include <react/renderer/imagemanager/ImageManager.h>
 #include <react/renderer/imagemanager/ImageRequest.h>
@@ -40,6 +41,21 @@
 namespace rngpui {
 
 using facebook::react::LoomHost;
+
+/// The frame source of React Native's shared animation backend: it asks core
+/// for frames while an animation runs, and delivers one animation frame with
+/// each of them.
+class AnimationFrameSource final
+    : public facebook::react::AnimationChoreographer {
+ public:
+  void resume() override;
+  void pause() override;
+  /// Called once per display frame on the main thread.
+  void tick() const;
+
+ private:
+  std::atomic<bool> running_{false};
+};
 
 /// Text measurement over core's TextLayoutManager, with the text scale the
 /// shadow tree would have applied.
@@ -139,6 +155,9 @@ class GpuiLoomHost final : public LoomHost,
   /// Gives a new native root its remembered size (its hint props) before its
   /// first layout. Needs the host registered in the context container.
   void installSizeHints();
+  const std::shared_ptr<AnimationFrameSource>& animationFrameSource() const {
+    return animationFrameSource_;
+  }
   void updateComponentState(
       facebook::react::SurfaceId surfaceId,
       facebook::react::Tag tag,
@@ -439,6 +458,8 @@ class GpuiLoomHost final : public LoomHost,
   static inline std::atomic<GpuiLoomHost*> active_{nullptr};
   float pointScaleFactor_{1.f};
   facebook::react::loom::Subscription sizeHints_;
+  std::shared_ptr<AnimationFrameSource> animationFrameSource_ =
+      std::make_shared<AnimationFrameSource>();
 };
 
 } // namespace rngpui
