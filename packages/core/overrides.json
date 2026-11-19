@@ -221,6 +221,10 @@
       "issue": 0
     },
     {
+      "type": "platform",
+      "file": "ReactCommonOverrides.loom/unistd.h"
+    },
+    {
       "type": "patch",
       "file": "ReactCommonOverrides.loom/react/nativemodule/dom/NativeDOM.h",
       "baseFile": "packages/react-native/ReactCommon/react/nativemodule/dom/NativeDOM.h",
