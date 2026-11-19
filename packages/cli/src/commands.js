@@ -123,7 +123,7 @@ function fetchPrebuiltRuntime(projectRoot, autolinkManifest) {
   }
   try {
     const manifest = JSON.parse(fs.readFileSync(autolinkManifest, 'utf8'));
-    if (manifest.prebuilt === 'never' || manifest.renderer?.name === 'loom') {
+    if (manifest.prebuilt === 'never') {
       return;
     }
     const appRequire = createRequire(path.join(projectRoot, 'package.json'));
@@ -131,9 +131,16 @@ function fetchPrebuiltRuntime(projectRoot, autolinkManifest) {
       path.dirname(appRequire.resolve('@react-native-gpui/core/package.json')),
       'scripts/prebuilt-binaries.mjs',
     );
-    spawnSync(process.execPath, [script, 'ensure'], {
-      stdio: ['ignore', 'ignore', 'inherit'],
-    });
+    spawnSync(
+      process.execPath,
+      [
+        script,
+        'ensure',
+        '--renderer',
+        manifest.renderer?.name === 'loom' ? 'loom' : 'fabric',
+      ],
+      { stdio: ['ignore', 'ignore', 'inherit'] },
+    );
   } catch {}
 }
 

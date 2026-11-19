@@ -30,7 +30,7 @@ npx react-native run-desktop --renderer loom --js-thread main
 The choice reaches every part of the build, so the JavaScript and the native code always agree:
 
 - Metro resolves `react-native` and its subpaths to Loom's version of the package, so Loom's `View`, `Text`, lists and renderer bundle are the ones that run.
-- The native runtime builds from source against Loom's headers and sources. There is no prebuilt runtime for Loom, so `RN_GPUI_BUILD_FROM_SOURCE` is implied and a first build takes as long as a source build of Fabric. The `prebuilt` option `always` cannot be combined with Loom.
+- The native runtime is built against Loom's headers and sources, so a Loom app downloads its own prebuilt runtime, published next to the Fabric one for each platform, and the `prebuilt` option works the same for both. It is used while this package's pinned Loom and its C++ sources are the ones the archive was built from; otherwise the runtime builds from source, which takes as long as a source build of Fabric.
 - Autolinked modules compile against the same headers. A module needs no change to run on either renderer unless it reads Fabric's shadow tree directly; see below.
 
 React Native's own files stay untouched. Loom is not on npm, so core pins it by commit (`ReactGpui/loom-pin.json`, the commit, the archive and its SHA-256) and downloads and verifies that archive into the shared per-user native-dependency cache on first use. It then runs Loom's own `materialize` against your installed `react-native` and keeps the result in the same cache. To work on Loom itself, set `RN_GPUI_LOOM_DIR` to a `react-native-loom` package directory and that is used instead of the download.

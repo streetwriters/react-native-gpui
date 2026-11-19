@@ -54,6 +54,7 @@ jobs:
       needed: ${{ steps.plan.outputs.needed }}
       version: ${{ steps.plan.outputs.version }}
       input_hash: ${{ steps.plan.outputs.input_hash }}
+      loom_input_hash: ${{ steps.plan.outputs.loom_input_hash }}
       tag: ${{ steps.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
@@ -71,12 +72,15 @@ jobs:
           set -euo pipefail
           pkg=packages/core
           hash="$(node "$pkg/scripts/prebuilt-inputs.mjs")"
+          loom_hash="$(node "$pkg/scripts/prebuilt-inputs.mjs" --renderer loom)"
           node_tree_rn="$(node -p "require('react-native/package.json').version")"
-          read -r pin_version pin_hash pin_rn < <(node -e '
+          read -r pin_version pin_hash pin_loom_hash pin_rn < <(node -e '
             const pin = require("./'"$pkg"'/prebuilt-binaries.json");
-            console.log(pin.version, pin.inputHash, pin.reactNative ?? "");
+            console.log(pin.version, pin.inputHash, pin.loom?.inputHash ?? "none", pin.reactNative ?? "");
           ')
-          if [ "$hash" = "$pin_hash" ] && [ "$FORCE" != "true" ] && [ "$EVENT" != "pull_request" ]; then
+          # One release carries the Fabric and the Loom archives; either hash
+          # changing publishes both.
+          if [ "$hash" = "$pin_hash" ] && [ "$loom_hash" = "$pin_loom_hash" ] && [ "$FORCE" != "true" ] && [ "$EVENT" != "pull_request" ]; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
             echo "Input hash $hash matches the pin; nothing to build."
             exit 0
@@ -92,12 +96,13 @@ jobs:
             echo "needed=true"
             echo "version=$version"
             echo "input_hash=$hash"
+            echo "loom_input_hash=$loom_hash"
             echo "tag=@react-native-gpui/prebuilt-binaries@$version"
           } >> "$GITHUB_OUTPUT"
           echo "Planned version $version for input hash $hash"
 
   build:
-    name: build ${{ matrix.platform }}
+    name: build ${{ matrix.platform }} (${{ matrix.renderer }})
     needs: plan
     if: needs.plan.outputs.needed == 'true'
     runs-on: ${{ matrix.os }}
@@ -109,6 +114,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        platform:
+          [
+            darwin-arm64,
+            darwin-x64,
+            win32-x64,
+            win32-arm64,
+            linux-x64,
+            linux-arm64,
+          ]
+        renderer: [fabric, loom]
         include:
           - platform: darwin-arm64
             # macos-14's Xcode 15 finds Boost.Beast's async_teardown ambiguous.
@@ -245,9 +260,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/ccache
-          key: ccache-${{ matrix.platform }}-${{ needs.plan.outputs.input_hash }}
+          key: ccache-${{ matrix.platform }}-${{ matrix.renderer }}-${{ needs.plan.outputs.input_hash }}-${{ needs.plan.outputs.loom_input_hash }}
           restore-keys: |
-            ccache-${{ matrix.platform }}-
+            ccache-${{ matrix.platform }}-${{ matrix.renderer }}-
+
+      # The Loom runtime builds against Loom's React Native tree: the pinned
+      # Loom's changes applied to this checkout's react-native.
+      - name: Materialize the Loom React Native tree
+        if: matrix.renderer == 'loom'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tree="$(node packages/core/renderer.js tree "$GITHUB_WORKSPACE" | tail -n 1 | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).reactNativeDir')"
+          test -d "$tree/ReactCommon"
+          echo "LOOM_TREE=$tree" >> "$GITHUB_ENV"
+          echo "Loom tree: $tree"
 
       - name: Build the prebuilt runtime
         if: runner.os != 'Windows'
@@ -260,11 +287,16 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/prebuilt-out"
           mkdir -p "$out" "$NATIVE_DEPS"
+          renderer_args=()
+          if [ "${{ matrix.renderer }}" = loom ]; then
+            renderer_args=(--renderer loom --react-native-dir "$LOOM_TREE")
+          fi
           node packages/core/scripts/build-prebuilt.mjs \
             --version "$VERSION" \
             --out "$out" \
             --build-dir "$RUNNER_TEMP/prebuilt-build" \
-            --native-deps "$NATIVE_DEPS"
+            --native-deps "$NATIVE_DEPS" \
+            "${renderer_args[@]}"
 
       # PowerShell, not Git Bash: Bash puts Git's MSYS perl ahead of Strawberry
       # Perl, and OpenSSL's Windows configure rejects it. This also packs the
@@ -280,11 +312,16 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out, $env:NATIVE_DEPS | Out-Null
           Write-Host "perl: $((Get-Command perl).Source)"
           Write-Host "nasm: $((Get-Command nasm).Source)"
+          $rendererArgs = @()
+          if ('${{ matrix.renderer }}' -eq 'loom') {
+            $rendererArgs = @('--renderer', 'loom', '--react-native-dir', $env:LOOM_TREE)
+          }
           node packages/core/scripts/build-prebuilt.mjs `
             --version $env:VERSION `
             --out $out `
             --build-dir (Join-Path $env:RUNNER_TEMP 'prebuilt-build') `
-            --native-deps $env:NATIVE_DEPS
+            --native-deps $env:NATIVE_DEPS `
+            @rendererArgs
           if ($LASTEXITCODE -ne 0) { throw "build-prebuilt failed ($LASTEXITCODE)" }
 
       - name: Smoke test the archive with a standalone consumer
@@ -302,7 +339,13 @@ jobs:
             tar=/c/Windows/System32/tar.exe
             cmake_path() { cygpath -m "$1"; }
           fi
-          archive="$OUT/prebuilt-binaries-${{ matrix.platform }}.tar.gz"
+          name="${{ matrix.platform }}"
+          react_native="$GITHUB_WORKSPACE/node_modules/react-native"
+          if [ "${{ matrix.renderer }}" = loom ]; then
+            name="loom-$name"
+            react_native="$LOOM_TREE"
+          fi
+          archive="$OUT/prebuilt-binaries-$name.tar.gz"
           unpack="$RUNNER_TEMP/unpack"
           rm -rf "$unpack" && mkdir -p "$unpack"
           "$tar" -xzf "$(cmake_path "$archive")" -C "$(cmake_path "$unpack")" --strip-components=1
@@ -317,7 +360,7 @@ jobs:
           # checkout already has. Missing roots fail inside the config file.
           set(RN_GPUI_PREBUILT_ROOT_react_native_gpui "${REPO}/packages/core/ReactGpui/rn-gpui-sys/cpp")
           set(RN_GPUI_PREBUILT_ROOT_react_common_overrides "${REPO}/packages/core/ReactCommonOverrides")
-          set(RN_GPUI_PREBUILT_ROOT_react_common "${REPO}/node_modules/react-native/ReactCommon")
+          set(RN_GPUI_PREBUILT_ROOT_react_common "${REACT_NATIVE}/ReactCommon")
           set(RN_GPUI_PREBUILT_ROOT_react_cxx_platform "${REPO}/packages/core/ReactCxxPlatform")
           set(RN_GPUI_PREBUILT_ROOT_generated_rncore "${GENERATED}/fbreactnativespec/jni")
           set(RN_GPUI_PREBUILT_ROOT_cxxbridge "${GENERATED}/cxxbridge-include")
@@ -336,6 +379,7 @@ jobs:
           cmake -S "$consumer" -B "$consumer/build" \
             -DPREBUILT_DIR="$(cmake_path "$unpack")" \
             -DREPO="$(cmake_path "$GITHUB_WORKSPACE")" \
+            -DREACT_NATIVE="$(cmake_path "$react_native")" \
             -DGENERATED="$(cmake_path "$RUNNER_TEMP/generated-inputs")" \
             -DNATIVE_DEPS="$(cmake_path "$NATIVE_DEPS")" \
             -DCMAKE_BUILD_TYPE=Release
@@ -354,7 +398,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: prebuilt-${{ matrix.platform }}
+          name: prebuilt-${{ matrix.platform }}-${{ matrix.renderer }}
           path: ${{ runner.temp }}/stage/
           if-no-files-found: error
 
@@ -374,6 +418,7 @@ jobs:
       VERSION: ${{ needs.plan.outputs.version }}
       TAG: ${{ needs.plan.outputs.tag }}
       INPUT_HASH: ${{ needs.plan.outputs.input_hash }}
+      LOOM_INPUT_HASH: ${{ needs.plan.outputs.loom_input_hash }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -396,7 +441,7 @@ jobs:
           set -euo pipefail
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
             --title "@react-native-gpui/prebuilt-binaries $VERSION" \
-            --notes "Prebuilt C++ runtime for react-native-gpui (input hash $INPUT_HASH)."
+            --notes "Prebuilt C++ runtime for react-native-gpui: Fabric (input hash $INPUT_HASH) and Loom (input hash $LOOM_INPUT_HASH)."
       - name: Upload every asset
         working-directory: artifacts
         run: |
@@ -413,6 +458,7 @@ jobs:
           node packages/core/scripts/prebuilt-binaries.mjs pin \
             --version "$VERSION" \
             --input-hash "$INPUT_HASH" \
+            --loom-input-hash "$LOOM_INPUT_HASH" \
             --tag "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --assets artifacts/SHA256SUMS.txt \
@@ -430,4 +476,4 @@ jobs:
           git push origin "$branch"
           gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
             --title "chore(react-native-gpui): pin prebuilt runtime $VERSION" \
-            --body "Pins the prebuilt runtime published as $TAG (input hash $INPUT_HASH)."
+            --body "Pins the prebuilt runtime published as $TAG (Fabric input hash $INPUT_HASH, Loom input hash $LOOM_INPUT_HASH)."

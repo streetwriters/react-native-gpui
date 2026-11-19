@@ -1100,11 +1100,6 @@ export function autolink({ projectRoot = process.cwd(), configFile } = {}) {
   // The renderer decides which React Native tree the C++ and the codegen read.
   const rendererSelection =
     platformRequire('./renderer.js').resolveRenderer(projectRoot);
-  if (rendererSelection.renderer === 'loom' && prebuilt === 'always') {
-    throw new Error(
-      "project.desktop.prebuilt 'always' cannot be used with the loom renderer, which builds the native runtime from source",
-    );
-  }
   const { TypeScriptParser } = appRequire(
     '@react-native/codegen/lib/parsers/typescript/parser',
   );
