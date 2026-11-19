@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- `--js-thread` and `jsThread` choose where JavaScript runs with Loom for the build; the app no longer reads `RN_GPUI_JS_THREAD` at launch.
 - `doctor` requires Rust and Cargo 1.98 or newer instead of only checking that they are installed, so an older toolchain, such as a Homebrew Rust ahead of rustup on `PATH`, is reported before the build fails.
 - The app template's `desktop/build.rs` no longer warns about an unused `mut` on the first build.
 - `desktop.json` takes `renderer` (`fabric` or `loom`) and `jsThread` (`background` or `main`, Loom only), documented in `desktop.schema.json`, and `run-desktop` takes `--renderer` and `--js-thread` for one run. `autolink` records the choice and the React Native tree it selects in `autolink.json`, and the app's build follows it.

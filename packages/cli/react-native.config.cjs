@@ -92,7 +92,7 @@ module.exports = {
         {
           name: '--js-thread <thread>',
           description:
-            'background or main, overriding "jsThread" in desktop/desktop.json. Only with the loom renderer. Needs no native rebuild',
+            'background or main, overriding "jsThread" in desktop/desktop.json. Only with the loom renderer. Rebuilds the Rust part of the runtime',
         },
       ],
       examples: [

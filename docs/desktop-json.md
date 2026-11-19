@@ -122,7 +122,7 @@ The renderer that mounts React's output: `"fabric"` is React Native's and the de
 
 ### `jsThread`
 
-Where JavaScript runs with the Loom renderer: `"background"` on its own thread (the default), or `"main"` on the UI thread. It is an error with Fabric. The app reads it at startup, so changing it needs no native rebuild. `RN_GPUI_JS_THREAD` overrides it, at build and at launch.
+Where JavaScript runs with the Loom renderer: `"background"` on its own thread (the default), or `"main"` on the UI thread. It is an error with Fabric. It is fixed when the app is built: changing it rebuilds the Rust part of the native runtime, not its C++. `RN_GPUI_JS_THREAD` overrides it for a build.
 
 | Type                       |
 | -------------------------- |

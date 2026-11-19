@@ -13,6 +13,7 @@
 
 #include "GpuiMountingManager.h"
 
+#include <react/loom/Loom.h>
 #include <react/renderer/componentregistry/ComponentDescriptorRegistry.h>
 #include <react/renderer/imagemanager/ImageManager.h>
 #include <react/renderer/imagemanager/ImageRequest.h>
@@ -126,6 +127,18 @@ class GpuiLoomHost final : public LoomHost,
       folly::dynamic payload,
       facebook::react::RawEvent::Category category,
       bool unique) override;
+  /// Sets the size the runtime measured for a native root or slot as the
+  /// node's Loom measured size, with `layout` (one-shot layout props) beside
+  /// it. False when no running surface has the node.
+  static bool writeMeasuredSize(
+      facebook::react::Tag tag,
+      std::optional<float> width,
+      std::optional<float> height,
+      std::optional<float> minWidth,
+      folly::dynamic layout);
+  /// Gives a new native root its remembered size (its hint props) before its
+  /// first layout. Needs the host registered in the context container.
+  void installSizeHints();
   void updateComponentState(
       facebook::react::SurfaceId surfaceId,
       facebook::react::Tag tag,
@@ -425,6 +438,7 @@ class GpuiLoomHost final : public LoomHost,
   static inline std::atomic<std::uint64_t> pendingUiTasks_{0};
   static inline std::atomic<GpuiLoomHost*> active_{nullptr};
   float pointScaleFactor_{1.f};
+  facebook::react::loom::Subscription sizeHints_;
 };
 
 } // namespace rngpui

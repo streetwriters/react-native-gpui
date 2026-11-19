@@ -13,6 +13,9 @@
 #include "GpuiHost.h" // KAllSurfacesStopped
 #include "GpuiHostComponentsCpp.h"
 #include "MountBatchBuilder.h"
+#if LOOM_RENDERER
+#include "GpuiLoomHost.h"
+#endif
 #include "react/coremodules/DeviceInfoModule.h"
 #include "rn-gpui-sys/src/lib.rs.h" // cxx bridge
 
@@ -616,10 +619,23 @@ bool reportNativeRootSize(
     bool hasWidth,
     float width,
     float minWidth) {
+#if LOOM_RENDERER
+  if (!hasWidth) {
+    return GpuiLoomHost::writeMeasuredSize(
+        tag, std::nullopt, height, std::nullopt, folly::dynamic::object());
+  }
+  return GpuiLoomHost::writeMeasuredSize(
+      tag,
+      width,
+      height,
+      minWidth,
+      folly::dynamic::object("maxWidth", "100%")("flexShrink", 1));
+#else
   if (auto manager = hostComponentStateManager().lock()) {
     return manager->setNativeRootSize(tag, height, hasWidth, width, minWidth);
   }
   return false;
+#endif
 }
 
 bool reportNativeSlotSize(
@@ -628,10 +644,19 @@ bool reportNativeSlotSize(
     float width,
     bool hasHeight,
     float height) {
+#if LOOM_RENDERER
+  return GpuiLoomHost::writeMeasuredSize(
+      tag,
+      hasWidth ? std::optional<float>(width) : std::nullopt,
+      hasHeight ? std::optional<float>(height) : std::nullopt,
+      std::nullopt,
+      folly::dynamic::object());
+#else
   if (auto manager = hostComponentStateManager().lock()) {
     return manager->setNativeSlotSize(tag, hasWidth, width, hasHeight, height);
   }
   return false;
+#endif
 }
 
 void reportHostComponentInsets(

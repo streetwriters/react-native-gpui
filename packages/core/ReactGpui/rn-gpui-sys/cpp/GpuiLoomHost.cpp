@@ -1904,6 +1904,65 @@ void GpuiLoomHost::setPointScaleFactor(float scale) {
   LoomBinding::setPointScaleFactor(scale);
 }
 
+bool GpuiLoomHost::writeMeasuredSize(
+    Tag tag,
+    std::optional<float> width,
+    std::optional<float> height,
+    std::optional<float> minWidth,
+    folly::dynamic layout) {
+  auto* host = active_.load(std::memory_order_acquire);
+  if (host == nullptr) {
+    return false;
+  }
+  const auto runtime = loom::Runtime::from(*host->contextContainer_);
+  if (!runtime) {
+    return false;
+  }
+  const loom::MeasuredSize size{width, height, minWidth};
+  bool written = false;
+  runtime->forEachSurface([&](SurfaceId surfaceId) {
+    if (written || !runtime->setMeasuredSize(surfaceId, tag, size)) {
+      return;
+    }
+    written = true;
+    if (!layout.empty()) {
+      runtime->updateNativeProps(surfaceId, tag, std::move(layout));
+    }
+  });
+  return written;
+}
+
+void GpuiLoomHost::installSizeHints() {
+  const auto runtime = loom::Runtime::from(*contextContainer_);
+  if (!runtime) {
+    return;
+  }
+  sizeHints_ = runtime->setInitialMeasuredSize(
+      "DesktopNativeRoot",
+      [](const folly::dynamic& props) -> std::optional<loom::MeasuredSize> {
+        const auto read = [&props](const char* key) -> std::optional<float> {
+          const auto it = props.find(key);
+          if (it == props.items().end() || !it->second.isNumber() ||
+              it->second.asDouble() < 0) {
+            return std::nullopt;
+          }
+          return static_cast<float>(it->second.asDouble());
+        };
+        loom::MeasuredSize size;
+        size.height = read("hintHeight");
+        if (const auto width = read("hintWidth")) {
+          if (const auto minWidth = read("hintMinWidth")) {
+            size.width = width;
+            size.minWidth = minWidth;
+          }
+        }
+        if (!size.height && !size.width) {
+          return std::nullopt;
+        }
+        return size;
+      });
+}
+
 std::optional<Size> GpuiLoomHost::surfaceContentSize(SurfaceId surfaceId) {
   const auto runtime = loom::Runtime::from(*contextContainer_);
   if (!runtime) {

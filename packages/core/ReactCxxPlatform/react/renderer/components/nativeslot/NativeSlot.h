@@ -45,6 +45,12 @@ struct NativeSlotState {
   bool hasHeight{false};
 };
 
+#if defined(LOOM_RENDERER) && LOOM_RENDERER
+using NativeSlotShadowNode =
+    ConcreteViewShadowNode<NativeSlotComponentName, NativeSlotProps>;
+using NativeSlotComponentDescriptor =
+    ConcreteComponentDescriptor<NativeSlotShadowNode>;
+#else
 class NativeSlotShadowNode final : public ConcreteViewShadowNode<
                                        NativeSlotComponentName,
                                        NativeSlotProps,
@@ -63,5 +69,6 @@ class NativeSlotComponentDescriptor final
 
   void adopt(ShadowNode& shadowNode) const override;
 };
+#endif
 
 } // namespace facebook::react

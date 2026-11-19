@@ -236,7 +236,30 @@ pub(crate) fn apply_ops(cx: &mut App, root: u32, payload: &str) {
     });
     if let Some(node) = tag.and_then(|tag| store.read(cx).nodes.get(&tag).cloned()) {
         node.update(cx, |_, cx| cx.notify());
+        if let Some(window) = crate::store::window_of_surface(node.read(cx).surface_id) {
+            draw_settling_now(window, cx);
+        }
     }
+}
+
+thread_local! {
+    static DRAW_QUEUED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// While a tree is settling, draws `window` as soon as new content arrives
+/// instead of on its next frame: the frame is not shown during a hold, so a
+/// size that takes several rounds between the tree and React Native's layout
+/// settles in one frame interval rather than one per round.
+pub(crate) fn draw_settling_now(window: gpui::AnyWindowHandle, cx: &mut App) {
+    if UNSETTLED.with(|unsettled| unsettled.borrow().is_empty())
+        || DRAW_QUEUED.with(|queued| queued.replace(true))
+    {
+        return;
+    }
+    cx.defer(move |cx| {
+        DRAW_QUEUED.with(|queued| queued.set(false));
+        let _ = window.update(cx, |_, window, cx| window.draw_while_held(cx));
+    });
 }
 
 /// Whether this is the first time the tree `root` is seen, by its box rendering

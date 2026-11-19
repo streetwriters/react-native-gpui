@@ -1020,6 +1020,7 @@ impl ViewStore {
             window.on_next_frame(crate::accessibility::sync_modal_focus);
         });
         self.schedule_hover_retarget(cx);
+        crate::builtins::native_root::draw_settling_now(target, cx);
     }
 
     /// The scroll views that keep their visible content in place, with the
