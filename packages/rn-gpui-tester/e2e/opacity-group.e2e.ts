@@ -30,13 +30,14 @@ beforeAll(async () => {
 
 afterAll(() => app?.close());
 
-/** Pixels that are half red over white: the child at 50% opacity. */
-async function faded(id: string) {
+/** Pixels that are red over white at the given opacity: 50% is a green of 128, 25% one of 191. */
+async function faded(id: string, opacity = 0.5) {
   const image = PNG.sync.read(await app.getByTestId(id).screenshot());
+  const green = 255 * (1 - opacity);
   let count = 0;
   for (let at = 0; at < image.data.length; at += 4) {
     const [r, g, b] = [image.data[at], image.data[at + 1], image.data[at + 2]];
-    if (r > 240 && g > 100 && g < 160 && Math.abs(g - b) < 6) count += 1;
+    if (r > 240 && Math.abs(g - green) < 30 && Math.abs(g - b) < 6) count += 1;
   }
   return count;
 }
@@ -48,7 +49,11 @@ test.each([
   'opacity-absolute',
   'opacity-rounded',
   'opacity-pressable',
-  'opacity-nested',
 ])('%s draws its child at half strength', async id => {
   expect(await faded(id)).toBeGreaterThan(200);
+});
+
+test('opacity-nested multiplies the two fades: a quarter strength', async () => {
+  expect(await faded('opacity-nested', 0.25)).toBeGreaterThan(200);
+  expect(await faded('opacity-nested')).toBe(0);
 });
