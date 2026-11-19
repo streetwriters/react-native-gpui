@@ -53,6 +53,14 @@ struct NativeRootState {
   bool hasWidth{false};
 };
 
+#if defined(LOOM_RENDERER) && LOOM_RENDERER
+// Loom lays the box out from its props; the runtime writes the measured size
+// through Loom's native props lane instead of a state.
+using NativeRootShadowNode =
+    ConcreteViewShadowNode<NativeRootComponentName, NativeRootProps>;
+using NativeRootComponentDescriptor =
+    ConcreteComponentDescriptor<NativeRootShadowNode>;
+#else
 class NativeRootShadowNode final : public ConcreteViewShadowNode<
                                        NativeRootComponentName,
                                        NativeRootProps,
@@ -74,5 +82,6 @@ class NativeRootComponentDescriptor final
 
   void adopt(ShadowNode& shadowNode) const override;
 };
+#endif
 
 } // namespace facebook::react

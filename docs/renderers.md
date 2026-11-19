@@ -17,13 +17,13 @@ A renderer turns what React produces into the views a window shows. React Native
 | `renderer` | `"fabric"`, `"loom"`                 | `"fabric"`     |
 | `jsThread` | `"background"`, `"main"` (Loom only) | `"background"` |
 
-`RN_GPUI_RENDERER` and `RN_GPUI_JS_THREAD` override the file for one run, and `npx react-native run-desktop` takes `--renderer` and `--js-thread`:
+`RN_GPUI_RENDERER` and `RN_GPUI_JS_THREAD` override the file for one build, and `npx react-native run-desktop` takes `--renderer` and `--js-thread`:
 
 ```shell
 npx react-native run-desktop --renderer loom --js-thread main
 ```
 
-`jsThread` with Fabric is an error. A change of renderer rebuilds the native runtime and the JavaScript bundle. A change of `jsThread` does not: both modes use the same native build, and the app reads the setting when it starts, so `RN_GPUI_JS_THREAD` at launch is enough.
+`jsThread` with Fabric is an error. A change of renderer rebuilds the native runtime and the JavaScript bundle. A change of `jsThread` rebuilds only the Rust part of the runtime: both modes share the C++ build, and the mode is fixed in the app when it is built, as Loom's iOS and Android builds fix it.
 
 ## What changes
 
@@ -37,7 +37,7 @@ React Native's own files stay untouched. Loom is not on npm, so core pins it by 
 
 ## JavaScript on the main thread
 
-With `"jsThread": "background"`, JavaScript runs on its own thread, as it does with Fabric, and Loom's worker prepares commits off it. With `"main"`, JavaScript runs on the UI thread. A commit then applies without a thread hop, and React Native's timers and animation callbacks run in step with the frame. A long task in JavaScript blocks painting and input, which it cannot do in background mode. The setting is read when the app starts, so switching between the two needs no native rebuild.
+With `"jsThread": "background"`, JavaScript runs on its own thread, as it does with Fabric, and Loom's worker prepares commits off it. With `"main"`, JavaScript runs on the UI thread. A commit then applies without a thread hop, and React Native's timers and animation callbacks run in step with the frame. A long task in JavaScript blocks painting and input, which it cannot do in background mode. The setting is fixed when the app is built.
 
 ## Which modules work
 

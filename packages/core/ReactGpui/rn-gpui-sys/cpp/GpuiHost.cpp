@@ -541,6 +541,7 @@ GpuiHost::GpuiHost(
       });
   loomHost_->connect();
   LoomHost::registerIn(*contextContainer, loomHost_);
+  loomHost_->installSizeHints();
   mountingManager_->setInstanceHook([this](bool up) {
     if (up) {
       loomHost_->begin();

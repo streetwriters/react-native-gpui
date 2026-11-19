@@ -136,10 +136,10 @@ fn main() {
     // The renderer is chosen in desktop/desktop.json and recorded by autolink,
     // together with the React Native tree its C++ and codegen read.
     let renderer = RendererSelection::read(&autolink_manifest);
-    // Read at startup, so a different value rebuilds Rust only; the C++ is the
-    // same for both.
+    // Fixed at build time, as Loom's other platforms do. A different value
+    // rebuilds Rust only; the C++ is the same for both.
     println!(
-        "cargo:rustc-env=RN_GPUI_DEFAULT_JS_THREAD={}",
+        "cargo:rustc-env=RN_GPUI_JS_THREAD_BUILT={}",
         if renderer.js_thread.is_empty() {
             "background"
         } else {

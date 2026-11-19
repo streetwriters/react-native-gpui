@@ -70,6 +70,7 @@ folly::dynamic NativeRootProps::getDiffProps(const Props* prevProps) const {
 }
 #endif
 
+#if !(defined(LOOM_RENDERER) && LOOM_RENDERER)
 void NativeRootShadowNode::applyContentSize() {
   const auto& data = getStateData();
   const auto& props = static_cast<const NativeRootProps&>(*getProps());
@@ -112,6 +113,7 @@ void NativeRootComponentDescriptor::adopt(ShadowNode& shadowNode) const {
   static_cast<NativeRootShadowNode&>(shadowNode).applyContentSize();
   ConcreteComponentDescriptor::adopt(shadowNode);
 }
+#endif
 
 #if RN_DEBUG_STRING_CONVERTIBLE
 SharedDebugStringConvertibleList NativeRootProps::getDebugProps() const {

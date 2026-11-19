@@ -714,9 +714,9 @@ pub use ffi::{
     PreparedText, RectF, ShadowF, TextFragmentFlat, ViewPropsFlat,
 };
 
-/// Where JavaScript runs with the Loom renderer when `RN_GPUI_JS_THREAD` is not
-/// set: the `jsThread` autolink recorded.
-pub const DEFAULT_JS_THREAD: &str = env!("RN_GPUI_DEFAULT_JS_THREAD");
+/// Where JavaScript runs with the Loom renderer: the `jsThread` autolink
+/// recorded, fixed when the app is built.
+pub const JS_THREAD: &str = env!("RN_GPUI_JS_THREAD_BUILT");
 
 pub type MountHandler = Box<dyn Fn(ffi::MountBatch) + Send + Sync>;
 pub type MeasureHandler =

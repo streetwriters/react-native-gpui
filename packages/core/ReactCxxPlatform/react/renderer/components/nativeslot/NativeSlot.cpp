@@ -52,6 +52,7 @@ folly::dynamic NativeSlotProps::getDiffProps(const Props* prevProps) const {
 }
 #endif
 
+#if !(defined(LOOM_RENDERER) && LOOM_RENDERER)
 void NativeSlotShadowNode::applySlotSize() {
   const auto& data = getStateData();
   const auto& base = getConcreteProps().yogaStyle;
@@ -79,6 +80,7 @@ void NativeSlotComponentDescriptor::adopt(ShadowNode& shadowNode) const {
   static_cast<NativeSlotShadowNode&>(shadowNode).applySlotSize();
   ConcreteComponentDescriptor::adopt(shadowNode);
 }
+#endif
 
 #if RN_DEBUG_STRING_CONVERTIBLE
 SharedDebugStringConvertibleList NativeSlotProps::getDebugProps() const {

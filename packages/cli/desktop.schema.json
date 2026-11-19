@@ -31,7 +31,7 @@
       "enum": ["fabric", "loom"]
     },
     "jsThread": {
-      "description": "Where JavaScript runs with the 'loom' renderer. 'background' runs it on its own thread and is the default. 'main' runs it on the UI thread, so commits apply without a thread hop and a long task blocks painting. Only valid with \"renderer\": \"loom\". The app reads it at startup, so changing it needs no native rebuild. The RN_GPUI_JS_THREAD environment variable overrides this.",
+      "description": "Where JavaScript runs with the 'loom' renderer. 'background' runs it on its own thread and is the default. 'main' runs it on the UI thread, so commits apply without a thread hop and a long task blocks painting. Only valid with \"renderer\": \"loom\". Fixed when the app is built; changing it rebuilds the Rust part of the runtime. The RN_GPUI_JS_THREAD environment variable overrides this for a build.",
       "enum": ["background", "main"]
     },
     "icon": {
