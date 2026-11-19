@@ -45,7 +45,6 @@ Everything core renders works on both renderers: `View`, `Text`, `Image`, `Scrol
 
 ## Limitations
 
-- **Reanimated and worklets are not supported with Loom.** Loom's Reanimated adapter exists for iOS and Android only. Use `Animated`, which works on both renderers.
 - Views that only position their children (no visual props) are flattened away by Loom, so they have no native node. Give a `View` `collapsable={false}`, or any prop it draws or reacts to, to keep one.
 - `reportMount` is not called for Loom surfaces, so mount hooks that depend on the shadow tree do not see them.
 - Only macOS is verified. The Windows and Linux builds take the same paths but have not been run.

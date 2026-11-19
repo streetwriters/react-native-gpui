@@ -1932,6 +1932,22 @@ bool GpuiLoomHost::writeMeasuredSize(
   return written;
 }
 
+void AnimationFrameSource::resume() {
+  running_.store(true, std::memory_order_release);
+  requestFrames("animation-backend", true);
+}
+
+void AnimationFrameSource::pause() {
+  running_.store(false, std::memory_order_release);
+  requestFrames("animation-backend", false);
+}
+
+void AnimationFrameSource::tick() const {
+  if (running_.load(std::memory_order_acquire)) {
+    onAnimationFrame(now());
+  }
+}
+
 void GpuiLoomHost::installSizeHints() {
   const auto runtime = loom::Runtime::from(*contextContainer_);
   if (!runtime) {

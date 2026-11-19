@@ -463,6 +463,9 @@ GpuiHost::GpuiHost(
   rngpui::install_rust_turbo_modules();
   rngpui::rn_gpui_install_modules();
   rngpui::selectJsEngine(std::string(jsEngine));
+#if LOOM_RENDERER
+  rngpui::sharedAnimatedBackend().store(true, std::memory_order_release);
+#endif
   install_feature_flags();
   rngpui::installGpuiTextMeasureTable();
   rngpui::installGpuiImageLoadTable();
@@ -667,7 +670,13 @@ GpuiHost::GpuiHost(
             runtime,
             std::make_shared<facebook::react::RuntimeSchedulerCallInvoker>(
                 binding->getRuntimeScheduler()));
-      });
+      },
+#if LOOM_RENDERER
+      /* animationChoreographer */ loomHost_->animationFrameSource()
+#else
+      /* animationChoreographer */ nullptr
+#endif
+  );
   activeGpuiHost.store(this, std::memory_order_release);
 #if defined(RN_GPUI_ACCESSIBILITY_SETTINGS)
   rn_gpui_start_accessibility_observing();
@@ -1228,6 +1237,7 @@ void GpuiHost::on_frame(double eventTimestampMs) const {
   dispatchPointerTick(*mountingManager_, eventTimestampMs);
 #if LOOM_RENDERER
   // Animation props collected since the last frame reach the screen with it.
+  loomHost_->animationFrameSource()->tick();
   GpuiLoomHost::runOnUIThread([] { LoomBinding::flushAnimationFrames(); });
 #endif
   on_render();
