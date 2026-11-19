@@ -38,7 +38,8 @@ export const STAGES = [
 /// The A3 line the Rust build prints, so the report can say which C++ runtime
 /// each OS linked.
 export function readRuntimeFromLog(logText) {
-  const prebuilt = /using prebuilt runtime ([^\s(]+)/u.exec(logText);
+  const prebuilt =
+    /using prebuilt (?:(?:fabric|loom) )?runtime ([^\s(]+)/u.exec(logText);
   if (prebuilt) return { kind: 'prebuilt', version: prebuilt[1] };
   const source = /no prebuilt runtime \(([^)]*)\)/u.exec(logText);
   if (source) return { kind: 'source', reason: source[1].trim() };
