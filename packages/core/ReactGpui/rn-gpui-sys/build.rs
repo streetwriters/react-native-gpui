@@ -165,23 +165,23 @@ fn main() {
     // Generated sources live beside the CMake build tree instead of Cargo's
     // OUT_DIR. The OUT_DIR hash changes with the workspace and feature set, and
     // a changed include path would make CMake rebuild every C++ file.
-    let prebuilt_dir = if renderer.loom {
-        println!(
-            "cargo:warning=rn-gpui-sys: the loom renderer has no prebuilt runtime; building from source"
-        );
-        None
-    } else {
-        select_prebuilt_dir(
-            &package_dir,
-            &target_triple,
-            &prebuilt_mode(&autolink_manifest),
-        )
-    };
+    let renderer_name = if renderer.loom { "loom" } else { "fabric" };
+    let prebuilt_dir = select_prebuilt_dir(
+        &package_dir,
+        &target_triple,
+        &prebuilt_mode(&autolink_manifest),
+        renderer_name,
+    );
     // A prebuilt build keeps its own CMake directory. Sharing one with source
     // builds leaves their librn_gpui_core.a on the linker search path, where it
     // shadows the prebuilt archive and mixes two React Native ABIs.
     let cmake_out_dir = if prebuilt_dir.is_some() {
-        cmake_out_dir.with_file_name(format!("{cmake_build_type}-prebuilt"))
+        let suffix = if renderer.loom {
+            "loom-prebuilt"
+        } else {
+            "prebuilt"
+        };
+        cmake_out_dir.with_file_name(format!("{cmake_build_type}-{suffix}"))
     } else if renderer.loom {
         // Loom's headers change the layout of React Native's classes, so a
         // Loom build and a Fabric build must not share objects.
@@ -499,7 +499,10 @@ fn main() {
             "react-native-gpui-prebuilt_DIR",
             cmake_path(&dir.join("cmake")),
         ));
-        defines.push(("RN_GPUI_OVERRIDES_SHA256", overrides_sha256(&package_dir)));
+        defines.push((
+            "RN_GPUI_OVERRIDES_SHA256",
+            overrides_sha256(&package_dir, renderer_name),
+        ));
     }
 
     // A configure rewrites flags.make, and every object depends on it, so
@@ -1193,14 +1196,19 @@ fn prebuilt_mode(autolink_manifest: &Path) -> String {
 /// while the C++ inputs still hash to the pinned input hash, wherever this
 /// package is installed. Any failure falls back to source with one warning,
 /// and mode `always` turns that failure into a panic.
-fn select_prebuilt_dir(package_dir: &Path, target: &str, mode: &str) -> Option<PathBuf> {
-    let dir = select_prebuilt_dir_inner(package_dir, target, mode)?;
+fn select_prebuilt_dir(
+    package_dir: &Path,
+    target: &str,
+    mode: &str,
+    renderer: &str,
+) -> Option<PathBuf> {
+    let dir = select_prebuilt_dir_inner(package_dir, target, mode, renderer)?;
     match prebuilt_version(&dir) {
-        Some(version) => {
-            println!("cargo:warning=rn-gpui-sys: using prebuilt runtime {version} ({target})")
-        }
+        Some(version) => println!(
+            "cargo:warning=rn-gpui-sys: using prebuilt {renderer} runtime {version} ({target})"
+        ),
         None => println!(
-            "cargo:warning=rn-gpui-sys: using prebuilt runtime {} ({target})",
+            "cargo:warning=rn-gpui-sys: using prebuilt {renderer} runtime {} ({target})",
             dir.display()
         ),
     }
@@ -1217,14 +1225,19 @@ fn prebuilt_version(dir: &Path) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn select_prebuilt_dir_inner(package_dir: &Path, target: &str, mode: &str) -> Option<PathBuf> {
+fn select_prebuilt_dir_inner(
+    package_dir: &Path,
+    target: &str,
+    mode: &str,
+    renderer: &str,
+) -> Option<PathBuf> {
     if env_flag("RN_GPUI_BUILD_FROM_SOURCE") || mode == "never" {
         return None;
     }
     let require = mode == "always";
     if let Some(dir) = env::var_os("RN_GPUI_PREBUILT_DIR") {
         let dir = PathBuf::from(dir);
-        return match check_prebuilt_react_native(&dir, package_dir) {
+        return match check_prebuilt_react_native(&dir, package_dir, renderer) {
             Ok(()) => Some(dir),
             Err(reason) => {
                 fallback_or_panic(require, &reason);
@@ -1237,7 +1250,7 @@ fn select_prebuilt_dir_inner(package_dir: &Path, target: &str, mode: &str) -> Op
     // must not link an archive those inputs did not build, and the hash is
     // computed from paths relative to this package, so it is the same value in
     // both layouts.
-    if let Err(reason) = check_pinned_inputs(package_dir) {
+    if let Err(reason) = check_pinned_inputs(package_dir, renderer) {
         fallback_or_panic(require, &reason);
         return None;
     }
@@ -1248,6 +1261,8 @@ fn select_prebuilt_dir_inner(package_dir: &Path, target: &str, mode: &str) -> Op
         .arg("ensure")
         .arg("--triple")
         .arg(target)
+        .arg("--renderer")
+        .arg(renderer)
         .output();
     match output {
         Ok(out) if out.status.success() => {
@@ -1257,7 +1272,7 @@ fn select_prebuilt_dir_inner(package_dir: &Path, target: &str, mode: &str) -> Op
                 return None;
             }
             let dir = PathBuf::from(dir);
-            match check_prebuilt_react_native(&dir, package_dir) {
+            match check_prebuilt_react_native(&dir, package_dir, renderer) {
                 Ok(()) => Some(dir),
                 Err(reason) => {
                     fallback_or_panic(require, &reason);
@@ -1288,7 +1303,11 @@ fn select_prebuilt_dir_inner(package_dir: &Path, target: &str, mode: &str) -> Op
 /// was built against. Compares manifest.json `reactNative` with the installed
 /// react-native package.json `version`. Any mismatch (or unreadable input) is an
 /// error, which the caller turns into a source fallback.
-fn check_prebuilt_react_native(dir: &Path, package_dir: &Path) -> Result<(), String> {
+fn check_prebuilt_react_native(
+    dir: &Path,
+    package_dir: &Path,
+    renderer: &str,
+) -> Result<(), String> {
     let manifest_path = dir.join("manifest.json");
     let manifest: serde_json::Value = fs::read_to_string(&manifest_path)
         .map_err(|error| format!("cannot read {}: {error}", manifest_path.display()))
@@ -1322,21 +1341,44 @@ fn check_prebuilt_react_native(dir: &Path, package_dir: &Path) -> Result<(), Str
             "prebuilt runtime was built for react-native {built_for}, installed react-native is {installed_version}"
         ));
     }
+    if renderer == "loom" {
+        let built_with = manifest.get("loom").and_then(|value| value.as_str());
+        let pinned = fs::read_to_string(package_dir.join("ReactGpui").join("loom-pin.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|pin| pin.get("commit")?.as_str().map(str::to_owned));
+        if built_with.is_none() || built_with != pinned.as_deref() {
+            return Err(format!(
+                "prebuilt runtime was built with Loom {}, this package pins Loom {}",
+                built_with.unwrap_or("none"),
+                pinned.as_deref().unwrap_or("none")
+            ));
+        }
+    }
     Ok(())
 }
 
 /// A repository checkout may have C++ edits the pinned archive does not
 /// contain, so its inputs must hash to the pin's `inputHash`.
-fn check_pinned_inputs(package_dir: &Path) -> Result<(), String> {
+fn check_pinned_inputs(package_dir: &Path, renderer: &str) -> Result<(), String> {
     let pin_path = package_dir.join("prebuilt-binaries.json");
     println!("cargo:rerun-if-changed={}", pin_path.display());
     let pinned = fs::read_to_string(&pin_path)
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .and_then(|pin| pin.get("inputHash")?.as_str().map(str::to_owned))
-        .ok_or_else(|| format!("{} has no inputHash", pin_path.display()))?;
+        .and_then(|pin| {
+            let section = if renderer == "loom" {
+                pin.get("loom")?
+            } else {
+                &pin
+            };
+            section.get("inputHash")?.as_str().map(str::to_owned)
+        })
+        .ok_or_else(|| format!("{} has no {renderer} inputHash", pin_path.display()))?;
     let output = Command::new("node")
         .arg(package_dir.join("scripts").join("prebuilt-inputs.mjs"))
+        .arg("--renderer")
+        .arg(renderer)
         .output()
         .map_err(|error| format!("could not run node: {error}"))?;
     let local = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -1409,10 +1451,12 @@ fn env_flag(name: &str) -> bool {
     matches!(env::var(name).as_deref(), Ok("1") | Ok("true"))
 }
 
-fn overrides_sha256(package_dir: &Path) -> String {
+fn overrides_sha256(package_dir: &Path, renderer: &str) -> String {
     let output = Command::new("node")
         .arg(package_dir.join("scripts").join("prebuilt-inputs.mjs"))
         .arg("--overrides-sha256")
+        .arg("--renderer")
+        .arg(renderer)
         .output()
         .expect("run node for overridesSha256");
     assert!(

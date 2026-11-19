@@ -923,7 +923,9 @@ jobs:
           // Only the files that actually feed the prebuilt archive:
           // `collectInputs()` is the single source of truth for those paths.
           const { collectInputs } = require('./packages/core/scripts/prebuilt-inputs.mjs');
-          const inputPaths = new Set(collectInputs().map(entry => entry.path));
+          const inputPaths = new Set(
+            ['fabric', 'loom'].flatMap(renderer => collectInputs(renderer).map(entry => entry.path)),
+          );
           const prefix = 'packages/core/';
           const changedCppInputs = () => {
             const changed = readJson('ci-out/changed-cpp-inputs.json');

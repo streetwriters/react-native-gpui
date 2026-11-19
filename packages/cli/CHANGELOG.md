@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/cli` are listed here. Each version's 
 
 ## Unreleased
 
+- With the Loom renderer, the build downloads the Loom prebuilt runtime before Cargo runs, as it does for Fabric, and `project.desktop.prebuilt` `always` no longer fails for Loom. `package-desktop` finds the shared libraries of a Loom build, whose CMake folder is named `-loom` or `-loom-prebuilt`.
 - `--js-thread` and `jsThread` choose where JavaScript runs with Loom for the build; the app no longer reads `RN_GPUI_JS_THREAD` at launch.
 - `doctor` requires Rust and Cargo 1.98 or newer instead of only checking that they are installed, so an older toolchain, such as a Homebrew Rust ahead of rustup on `PATH`, is reported before the build fails.
 - The app template's `desktop/build.rs` no longer warns about an unused `mut` on the first build.

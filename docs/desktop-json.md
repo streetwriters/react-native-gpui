@@ -112,7 +112,7 @@ Whether the [development menu](debugging) is available. Defaults to `true` in de
 
 ### `renderer`
 
-The renderer that mounts React's output: `"fabric"` is React Native's and the default, `"loom"` is [Loom](renderers). Loom builds the native runtime from source. `RN_GPUI_RENDERER` overrides it.
+The renderer that mounts React's output: `"fabric"` is React Native's and the default, `"loom"` is [Loom](renderers). Each renderer has its own prebuilt native runtime. `RN_GPUI_RENDERER` overrides it.
 
 | Type                   |
 | ---------------------- |

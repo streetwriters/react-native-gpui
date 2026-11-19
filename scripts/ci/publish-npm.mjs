@@ -312,7 +312,14 @@ function prebuiltProblems() {
       .filter(parts => parts.length === 2)
       .map(([sum, file]) => [file, sum]),
   );
-  for (const [platform, asset] of Object.entries(pin.assets)) {
+  const assets = [
+    ...Object.entries(pin.assets),
+    ...Object.entries(pin.loom?.assets ?? {}).map(([platform, asset]) => [
+      `loom-${platform}`,
+      asset,
+    ]),
+  ];
+  for (const [platform, asset] of assets) {
     const published = release.assets.find(entry => entry.name === asset.file);
     if (published === undefined) {
       problems.push(`prebuilt: ${pin.tag} has no ${asset.file} (${platform})`);

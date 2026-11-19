@@ -32,6 +32,19 @@ if (hashRun.status !== 0) {
 }
 const current = hashRun.stdout.trim();
 
+const loomRun = spawnSync(
+  process.execPath,
+  [path.join(scriptDir, 'prebuilt-inputs.mjs'), '--renderer', 'loom'],
+  { encoding: 'utf8' },
+);
+if (loomRun.status !== 0) {
+  console.error(
+    `check-prebuilt-pin: cannot compute the Loom input hash\n${loomRun.stderr}`,
+  );
+  process.exit(1);
+}
+const currentLoom = loomRun.stdout.trim();
+
 const problems = [];
 if (pin.inputHash !== current) {
   problems.push(
@@ -40,6 +53,14 @@ if (pin.inputHash !== current) {
 }
 if (!pin.assets || Object.keys(pin.assets).length === 0) {
   problems.push('pin lists no prebuilt assets');
+}
+if (pin.loom?.inputHash !== currentLoom) {
+  problems.push(
+    `pin loom.inputHash ${pin.loom?.inputHash || '(empty)'} does not match the current Loom C++ inputs ${currentLoom}`,
+  );
+}
+if (!pin.loom?.assets || Object.keys(pin.loom.assets).length === 0) {
+  problems.push('pin lists no Loom prebuilt assets');
 }
 
 if (problems.length > 0) {

@@ -475,9 +475,9 @@ function cmakeLibraryDirectories(projectRoot) {
 
 /// A CMake config directory that produces a release binary.
 ///
-/// `Release-prebuilt` is what a prebuilt build configures; `RelWithDebInfo` is
+/// `Release-prebuilt` is what a prebuilt build configures (`-loom` for Loom's); `RelWithDebInfo` is
 /// what an optimised build gets when debug info is kept. `Debug*` is excluded.
-const RELEASE_CONFIG = /^(?:Release|RelWithDebInfo)(?:-prebuilt)?$/u;
+const RELEASE_CONFIG = /^(?:Release|RelWithDebInfo)(?:-loom)?(?:-prebuilt)?$/u;
 
 /** Every directory at or below `root`, breadth-first, bounded in depth. */
 function walkDirectories(root, depth = 0) {
