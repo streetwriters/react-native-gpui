@@ -1935,11 +1935,13 @@ bool GpuiLoomHost::writeMeasuredSize(
 void AnimationFrameSource::resume() {
   running_.store(true, std::memory_order_release);
   requestFrames("animation-backend", true);
+  reportPendingWork("animation-backend", 1);
 }
 
 void AnimationFrameSource::pause() {
   running_.store(false, std::memory_order_release);
   requestFrames("animation-backend", false);
+  reportPendingWork("animation-backend", 0);
 }
 
 void AnimationFrameSource::tick() const {

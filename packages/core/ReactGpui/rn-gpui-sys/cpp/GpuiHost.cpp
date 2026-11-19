@@ -593,6 +593,11 @@ GpuiHost::GpuiHost(
     std::lock_guard<std::recursive_mutex> lock(animatedFrameMutex_);
     animatedFrameCallback_ = nullptr;
     nativeAnimationActive.store(false);
+#if LOOM_RENDERER
+    if (loomHost_) {
+      loomHost_->animationFrameSource()->pause();
+    }
+#endif
     rngpui::updateFrameDemand();
   };
 
@@ -632,7 +637,15 @@ GpuiHost::GpuiHost(
       /* logBoxSurfaceDelegate */ logBoxDelegate_,
       /* animatedNodesManagerProvider */ animatedNodesManagerProvider_,
       /* bindingsInstallFunc */
-      [](facebook::jsi::Runtime& runtime) {
+      [this](facebook::jsi::Runtime& runtime) {
+#if LOOM_RENDERER
+        // A new instance has a new animation backend that has started nothing:
+        // an animation of the old one that resumed the frame source as it was
+        // torn down is not running any more.
+        if (loomHost_) {
+          loomHost_->animationFrameSource()->pause();
+        }
+#endif
         runtime.global().setProperty(
             runtime, "__gpuiScrollerLegacy", rn_gpui_scroller_legacy());
         // A native tree's batch of operations, from the second reconciler.
