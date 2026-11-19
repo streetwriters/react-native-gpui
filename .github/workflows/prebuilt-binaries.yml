@@ -191,7 +191,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install -y ninja ccache nasm strawberryperl
+          choco install -y --no-progress ninja ccache nasm strawberryperl
+          # A failed Chocolatey fetch must not end the job: NASM is published as
+          # a plain zip by its own project.
+          if (-not (Test-Path 'C:\Program Files\NASM\nasm.exe')) {
+            $zip = Join-Path $env:RUNNER_TEMP 'nasm.zip'
+            & curl.exe -sS -L --retry 3 --retry-delay 5 -o $zip 'https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip'
+            if ($LASTEXITCODE -ne 0) { throw "curl failed for nasm (exit $LASTEXITCODE)" }
+            Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP -Force
+            New-Item -ItemType Directory -Force -Path 'C:\Program Files\NASM' | Out-Null
+            Copy-Item (Get-ChildItem -Path $env:RUNNER_TEMP -Recurse -Filter nasm.exe | Select-Object -First 1).FullName 'C:\Program Files\NASM\nasm.exe'
+          }
           # OpenSSL needs Strawberry Perl (not Git's) and NASM on PATH; neither
           # installer adds its bin directory.
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\perl\bin'
@@ -296,7 +306,7 @@ jobs:
             --out "$out" \
             --build-dir "$RUNNER_TEMP/prebuilt-build" \
             --native-deps "$NATIVE_DEPS" \
-            "${renderer_args[@]}"
+            ${renderer_args[@]+"${renderer_args[@]}"}
 
       # PowerShell, not Git Bash: Bash puts Git's MSYS perl ahead of Strawberry
       # Perl, and OpenSSL's Windows configure rejects it. This also packs the

@@ -23,6 +23,21 @@ const CONFIG_FILES = {
   win32: 'windows',
 };
 
+/**
+ * The tar that extracts an archive. On Windows it is the one that ships with
+ * the OS: a bash session puts Git's GNU tar first on PATH, and GNU tar reads a
+ * `C:\...` argument as a remote host ("Cannot connect to C: resolve failed").
+ */
+function tarCommand() {
+  if (process.platform !== 'win32') return 'tar';
+  const systemTar = path.join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'tar.exe',
+  );
+  return fs.existsSync(systemTar) ? systemTar : 'tar';
+}
+
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -221,7 +236,7 @@ async function loomPackageDir(env = process.env) {
     const scratch = `${finalDir}.tmp`;
     fs.rmSync(scratch, { recursive: true, force: true });
     fs.mkdirSync(scratch, { recursive: true });
-    execFileSync('tar', [
+    execFileSync(tarCommand(), [
       '-xzf',
       archive,
       '-C',
