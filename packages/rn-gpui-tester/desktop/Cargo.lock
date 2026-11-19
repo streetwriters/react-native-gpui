@@ -2662,6 +2662,7 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "gpui",
+ "gpui_apple",
  "gpui_ios",
  "gpui_linux",
  "gpui_macos",
