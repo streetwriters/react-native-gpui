@@ -58,6 +58,8 @@ const passthrough = process.argv
 function assertScreenIsUnlocked() {
   if (process.platform !== 'darwin') return;
   if (process.env.RN_GPUI_ALLOW_LOCKED_SCREEN === '1') return;
+  // A headless run asks for no display (see docs/desktop-testing.md).
+  if (/^(1|true|yes)$/u.test(process.env.RN_GPUI_TEST_HEADLESS ?? '')) return;
   let output;
   try {
     output = execFileSync('ioreg', ['-n', 'Root', '-d1', '-a'], {

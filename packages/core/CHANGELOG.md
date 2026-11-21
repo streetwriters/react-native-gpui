@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- Experimental: with `RN_GPUI_TEST_HEADLESS=1`, a `test-driver` build runs on GPUI's test platform instead of AppKit, X11/Wayland or Win32, with the same bundle, bootstrap and driver socket. No window, display or window server is used, and `screenshot` draws the scene offscreen with Metal where a GPU is available and on the CPU (tiny-skia) where it is not, or always with `GPUI_TEST_RENDERER=cpu`. It runs inside a macOS sandbox that has no window server. The CPU renderer does not draw effect groups (group opacity, blur and drop-shadow filters), blend modes, masks or native views, and shell features (menus, Dock menu, tray, system clipboard, window activation and states, the accessibility tree, displays) are not available; see `docs/desktop-testing.md`. Needs gpui-fast `de5ebfa`.
 - On Windows, the Loom runtime no longer fails to compile with `Cannot open include file: 'unistd.h'`: Loom's `LoomBindingInternals.h` includes it and calls nothing from it, so the Loom header variants carry an MSVC stand-in that forwards to the real header everywhere else.
 - On Windows, the Loom renderer extracts its downloaded archive with the tar that ships with the OS, so a build from a Git Bash session no longer fails with `tar: Cannot connect to C: resolve failed`.
 - A native root whose size changes with its tree (a page switch, a revisited page) now settles before the next display tick instead of one tick per round between the tree and the layout: while the window holds its last frame, the runtime draws the tree as soon as a batch is applied, so the root's size is reported in the same tick. Holds on revisited pages drop from 17 to 4 of 26 (0 with `jsThread` main), and the time to the final frame by about 4 ms with `jsThread` background, 4–18 ms with main. Needs gpui-fast `8ddec44`.
@@ -54,7 +55,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 - The test driver reports a Rust module promise call made in the last second and not yet settled as busy (`modules`), so `waitForIdle` after a press that opens a window waits for the window and the promise.
 - `RN_GPUI_MOUNT_TRACE=1` logs, for every app-surface mount batch, when it was applied on the main thread and when the frame that shows it was presented, in wall-clock milliseconds that line up with JavaScript's `Date.now()`. The renderer benchmark reports them from the press as `appliedMs` and `presentedMs` for mount and unmount.
 - `RN_GPUI_MOUNT_TRACE=1` also logs when the test driver dispatches a click or a keystroke, to measure input latency from the event.
-- gpui-fast is pinned to `8ddec44`.
+- gpui-fast is pinned to `de5ebfa`.
 
 ## 0.87.0-alpha.4 - 2026-11-16
 

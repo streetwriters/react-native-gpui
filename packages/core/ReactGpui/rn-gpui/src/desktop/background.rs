@@ -108,6 +108,11 @@ pub fn test_display(cx: &gpui::App) -> Option<std::rc::Rc<dyn gpui::PlatformDisp
     if requested.is_none() && !enabled() {
         return None;
     }
+    // The test platform has its one display, and AppKit is not asked.
+    #[cfg(feature = "test-driver")]
+    if crate::headless::enabled() {
+        return None;
+    }
     let displays = cx.displays();
     let primary = cx.primary_display()?;
     let wanted = requested.as_deref().unwrap_or("secondary");

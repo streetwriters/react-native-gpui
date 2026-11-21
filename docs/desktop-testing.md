@@ -185,6 +185,18 @@ npm run test:e2e -- -u                # update screenshot baselines
 
 Tests launch hidden windows by default. Use a visible window when you want to watch a test, or leave the app running to inspect a failure.
 
+### Headless runs (experimental)
+
+```shell
+RN_GPUI_TEST_HEADLESS=1 npm run test:e2e -- stretch side-borders
+```
+
+With `RN_GPUI_TEST_HEADLESS=1` in the environment, a `test-driver` build starts on GPUI's test platform instead of AppKit, X11/Wayland or Win32. The bundle, the bootstrap, the React instance and the driver socket are the same, and `launchApp` passes the variable through, so a spec runs unchanged. No window, display or window server is used: the run works in a sandbox, over SSH or in a CI job with no display. `screenshot` draws the window's scene offscreen with Metal where a GPU can be made, and on the CPU (tiny-skia) where it cannot; `GPUI_TEST_RENDERER=cpu` always uses the CPU. The test platform has one 1920x1080 display at 2x.
+
+The CPU renderer draws text, borders, rounded clips, box shadows and images the way Metal does, pixel for pixel. Gradients differ in their first and last pixel column only. It does not draw effect groups (`opacity` below 1 on a view with children, `filter` blur and drop shadow), blend modes, masks (`MaskedView`) or native views: a view inside one is missing from the screenshot. Specs that check those need a windowed run.
+
+What the test platform does not have: the app menu, the Dock menu, tray icons, system tooltips, the accessibility tree, the system clipboard (it keeps its own), window activation (so specs that need a focused window fail), window states the platform owns (minimize and zoom panic, hide is not reported), a second launch handing over its arguments, and the real display list. Timers run on GPUI's clock, which the headless run loop moves along with the wall clock. Specs that use the missing features fail headless. The rn-gpui-tester parallel pass gives 338 passed and 53 failed headless, against 390 and 10 windowed.
+
 ## Unit tests
 
 `@react-native-gpui/testing/vitest-preset` configures Vitest to resolve `.desktop.*` and `.native.*` files before the plain ones, and to run React Native components in a Node environment:

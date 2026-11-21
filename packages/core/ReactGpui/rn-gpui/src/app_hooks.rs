@@ -72,15 +72,19 @@ impl gpui::AssetSource for CombinedAssets {
 
 /// The application with the registered asset sources, when there are any.
 pub(crate) fn with_registered_assets(application: gpui::Application) -> gpui::Application {
+    match registered_assets() {
+        Some(assets) => application.with_assets(assets),
+        None => application,
+    }
+}
+
+/// The registered asset sources as one, when there are any.
+pub(crate) fn registered_assets() -> Option<impl gpui::AssetSource> {
     let sources = ASSET_SOURCES
         .lock()
         .expect("asset source registry poisoned")
         .clone();
-    if sources.is_empty() {
-        application
-    } else {
-        application.with_assets(CombinedAssets(sources))
-    }
+    (!sources.is_empty()).then(|| CombinedAssets(sources))
 }
 
 /// Runs the registered app init hooks the first time it is called.

@@ -1367,60 +1367,20 @@ pub fn run_with(mut config: DesktopAppConfig) {
     crate::desktop::module::register();
     crate::builtins::register();
 
-    #[cfg(feature = "visual-capture")]
-    let headless = env_bool("RN_GPUI_HEADLESS", false);
-    #[cfg(not(feature = "visual-capture"))]
-    let headless = false;
-    startup_trace(if headless {
-        "using GPUI headless platform"
-    } else {
-        "using GPUI AppKit platform"
-    });
+    // A headless test run starts on GPUI's test platform: no real platform,
+    // display or window server is asked for (see `headless.rs`).
+    #[cfg(feature = "test-driver")]
+    let test_headless = crate::headless::enabled();
+    #[cfg(not(feature = "test-driver"))]
+    let test_headless = false;
     crate::desktop::test_scale::apply_to_environment();
-    let platform = gpui_platform::current_platform(headless);
-    startup_trace("platform created");
-    // A locked or absent session on macOS cannot launch AppKit, and the platform
-    // reports no display until it can. Nothing else does: on Linux GPUI starts on
-    // a placeholder connection and attaches X11 or Wayland once the app runs, so
-    // its display list is legitimately empty here — waiting for it never ends.
-    #[cfg(target_os = "macos")]
-    {
-        let mut waited_for_display = 0u64;
-        while platform.displays().is_empty() {
-            if waited_for_display == 0 {
-                log::warn!("no active display; waiting before entering AppKit launch");
-                startup_trace("waiting for an active display");
-            }
-            std::thread::sleep(Duration::from_secs(2));
-            waited_for_display += 2;
-            if waited_for_display % 30 == 0 {
-                log::warn!("still waiting for an active display ({waited_for_display}s)");
-            }
-        }
-    }
-    startup_trace("active display detected");
-    let application =
-        crate::app_hooks::with_registered_assets(Application::with_platform(platform));
-    // An accessory app takes no Dock icon or menu bar, and the policy has to
-    // be set before the run loop starts or the Dock bounces at launch.
-    #[cfg(target_os = "macos")]
-    let application = if crate::desktop::background::enabled() {
-        application.with_windowing(gpui::WindowingRequest::Headless)
-    } else {
-        application
-    };
+    let application = (!test_headless).then(platform_application);
     // Before any request can arrive: the C++ bridge reports completions through
     // this handler, and it is registered once.
     crate::http_client::install();
-    application.on_reopen(crate::desktop::windows::reopen);
-    application.on_open_urls(|urls| {
-        for url in urls {
-            crate::desktop::deep_link::handle_url(url);
-        }
-    });
-    application
-        .with_http_client(std::sync::Arc::new(crate::http_client::RnHttpClient::new()))
-        .run(move |cx: &mut App| {
+    // The real platform's application loop, or the headless test platform's
+    // (see `headless.rs`), runs the same launch.
+    let launch = move |cx: &mut App| {
         startup_trace("application run");
         crate::image_loader::install(cx);
         crate::desktop::icon::install(cx);
@@ -1432,7 +1392,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
             crate::desktop::platform_window::set_dock_icon(std::path::Path::new(&icon));
         }
         // Has to happen before the first window opens.
-        if config.accessory || config.tray.as_ref().is_some_and(|tray| tray.accessory) {
+        if !test_headless
+            && (config.accessory || config.tray.as_ref().is_some_and(|tray| tray.accessory))
+        {
             crate::desktop::platform_window::set_accessory_app(true);
         }
         if let Some(on_app_ready) = config.on_app_ready.take() {
@@ -1473,16 +1435,14 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // The overlay slot (LogBox) has to be in the app root's element tree from the
         // first frame: GPUI only re-renders entities the window tracked while drawing.
         let overlay_host = cx.new(|_| OverlayHost::new());
-        let root_view = SurfaceRootView::new(APP_SURFACE_ID).with_overlay_host(overlay_host.clone());
+        let root_view =
+            SurfaceRootView::new(APP_SURFACE_ID).with_overlay_host(overlay_host.clone());
         #[cfg(all(target_os = "macos", feature = "visual-capture"))]
         let root_view = if env_bool("RN_GPUI_NATIVE_WEBVIEW_PROBE", false) {
-            root_view.with_native_view_probe(
-                crate::native_view_probe::create_webview_probe_entity(cx),
-            )
+            root_view
+                .with_native_view_probe(crate::native_view_probe::create_webview_probe_entity(cx))
         } else if env_bool("RN_GPUI_NATIVE_COMPOSITION_PROBE", false) {
-            root_view.with_native_view_probe(
-                crate::native_view_probe::create_probe_entity(cx),
-            )
+            root_view.with_native_view_probe(crate::native_view_probe::create_probe_entity(cx))
         } else {
             root_view
         };
@@ -1493,7 +1453,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .flatten();
         startup_trace("window state loaded");
         let bounds = restored_bounds
-            .map(|(x, y, width, height)| Bounds::new(point(px(x), px(y)), size(px(width), px(height))))
+            .map(|(x, y, width, height)| {
+                Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
+            })
             .unwrap_or_else(|| {
                 let size = size(px(width), px(height));
                 if let Some((x, y)) = config.position {
@@ -1515,9 +1477,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
             #[cfg(not(feature = "test-driver"))]
             bounds
         };
-        let (width, height) = restored_bounds.map_or((width, height), |(_, _, width, height)| (width, height));
+        let (width, height) =
+            restored_bounds.map_or((width, height), |(_, _, width, height)| (width, height));
         if let Some((x, y, restored_width, restored_height)) = restored_bounds {
-            log::info!("restoring window at ({x:.0},{y:.0} {restored_width:.0}x{restored_height:.0})");
+            log::info!(
+                "restoring window at ({x:.0},{y:.0} {restored_width:.0}x{restored_height:.0})"
+            );
         }
         // Start React Native before the window exists.
         //
@@ -1531,11 +1496,8 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // Retina default on macOS and 1.0 elsewhere. The surface is corrected
         // below if the window disagrees, so a wrong guess costs one resize, not a
         // wrong layout.
-        let estimated_scale = scale_override.unwrap_or(if cfg!(target_os = "macos") {
-            2.0
-        } else {
-            1.0
-        });
+        let estimated_scale =
+            scale_override.unwrap_or(if cfg!(target_os = "macos") { 2.0 } else { 1.0 });
         // A surface must not start at zero: `RN_GPUI_WIDTH=0` would otherwise
         // reach JS as a 0x0 viewport, and Fabric would lay out the whole tree in
         // no space at all. The window's own size is authoritative once it opens.
@@ -1695,7 +1657,10 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let show_behind = crate::desktop::background::prepare(&mut window_options);
         #[cfg(feature = "visual-capture")]
         if std::env::var_os("RN_GPUI_TRANSPARENT_TITLEBAR").is_some() {
-            window_options.titlebar.get_or_insert_with(Default::default).appears_transparent = true;
+            window_options
+                .titlebar
+                .get_or_insert_with(Default::default)
+                .appears_transparent = true;
         }
         #[cfg(target_os = "windows")]
         let opens_hidden = !window_options.show;
@@ -1862,9 +1827,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
             }
         }
         if gpui_first {
-            log::info!(
-                "GPUI-first app: no React tree on surface 1 (window scale {window_scale})"
-            );
+            log::info!("GPUI-first app: no React tree on surface 1 (window scale {window_scale})");
         } else {
             log::info!(
                 "started surface 1 ({module}) at {width}x{}@{scale}x (window scale {window_scale}, \
@@ -1882,7 +1845,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
             .update(cx, |_root, window, _cx| {
                 window.observe_window_appearance(move |window, _cx| {
                     let appearance = match window.appearance() {
-                        gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => "dark",
+                        gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark => {
+                            "dark"
+                        }
                         _ => "light",
                     };
                     appearance_host.set_system_appearance(appearance);
@@ -1919,8 +1884,12 @@ pub fn run_with(mut config: DesktopAppConfig) {
         let keyboard_host = store.read(cx).host.clone();
         let keyboard_hook = frame_hook.clone();
         let navigation_keyboard_subscription = cx.intercept_keystrokes(move |event, window, cx| {
-            if window.window_handle().window_id() != window_id { return; }
-            if let Some(event_name) = crate::builtins::textinput::input::desktop_navigation_event(&event.keystroke) {
+            if window.window_handle().window_id() != window_id {
+                return;
+            }
+            if let Some(event_name) =
+                crate::builtins::textinput::input::desktop_navigation_event(&event.keystroke)
+            {
                 keyboard_host.emit_device_event(event_name);
                 keyboard_hook.arm(window);
                 log::info!("[navigation] emitted {event_name} from keyboard");
@@ -2080,9 +2049,7 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         let hook = frame_hook.clone();
                         let moved = cx.update_window(
                             any_window,
-                            move |_root: gpui::AnyView,
-                                  window: &mut gpui::Window,
-                                  cx: &mut App| {
+                            move |_root: gpui::AnyView, window: &mut gpui::Window, cx: &mut App| {
                                 let arena_clear_needed = window.draw(cx);
                                 arena_clear_needed.clear(cx);
                                 window.dispatch_event(
@@ -2178,7 +2145,11 @@ pub fn run_with(mut config: DesktopAppConfig) {
             let host = host_for_input.clone();
             cx.spawn(async move |cx| {
                 for (index, (x, y, dx, dy)) in scrolls.into_iter().enumerate() {
-                    let delay = if index == 0 { scroll_start_ms } else { scroll_ms };
+                    let delay = if index == 0 {
+                        scroll_start_ms
+                    } else {
+                        scroll_ms
+                    };
                     cx.background_executor()
                         .timer(Duration::from_millis(u64::from(delay)))
                         .await;
@@ -2219,7 +2190,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
                     cx.background_executor()
                         .timer(Duration::from_millis(u64::from(key_ms)))
                         .await;
-                    let Ok(keystroke) = gpui::Keystroke::parse_with_os(&key, crate::desktop::keymap::host_os()) else {
+                    let Ok(keystroke) =
+                        gpui::Keystroke::parse_with_os(&key, crate::desktop::keymap::host_os())
+                    else {
                         log::warn!("invalid synthetic keystroke: {key}");
                         continue;
                     };
@@ -2302,7 +2275,9 @@ pub fn run_with(mut config: DesktopAppConfig) {
             let delay = env_u32("RN_GPUI_TITLEBAR_TOGGLE_MS", 0);
             cx.spawn(async move |cx| {
                 for transparent in [false, true] {
-                    cx.background_executor().timer(Duration::from_millis(u64::from(delay))).await;
+                    cx.background_executor()
+                        .timer(Duration::from_millis(u64::from(delay)))
+                        .await;
                     let _ = cx.update_window(any_window, move |_, window, cx| {
                         crate::native_view::set_probe_titlebar_transparent(window, transparent);
                         window.bounds_changed(cx);
@@ -2310,17 +2285,21 @@ pub fn run_with(mut config: DesktopAppConfig) {
                         log::info!("[window-inset] probe titlebar transparent={transparent}");
                     });
                 }
-            }).detach();
+            })
+            .detach();
         }
         #[cfg(feature = "visual-capture")]
         if env_u32("RN_GPUI_FULLSCREEN_MS", 0) > 0 {
             let delay = env_u32("RN_GPUI_FULLSCREEN_MS", 0);
             cx.spawn(async move |cx| {
                 for interval in [delay, 3000] {
-                    cx.background_executor().timer(Duration::from_millis(u64::from(interval))).await;
+                    cx.background_executor()
+                        .timer(Duration::from_millis(u64::from(interval)))
+                        .await;
                     let _ = cx.update_window(any_window, |_, window, _| window.toggle_fullscreen());
                 }
-            }).detach();
+            })
+            .detach();
         }
 
         // The subscription unsubscribes the moment it drops, so it is handed to the
@@ -2332,84 +2311,85 @@ pub fn run_with(mut config: DesktopAppConfig) {
                 let frame_hook = frame_hook.clone();
                 let window_state_path = window_state_path.clone();
                 let last_surface_size = last_surface_size.clone();
-                crate::app_hooks::observer_context_joined(cx, |observers| observers.observe_window_bounds(window, move |_root, window, cx| {
-                    // GPUI calls bounds observers on every resize notification and layout, so
-                    // nothing here may write to disk or log unless a value changed.
-                    let size = window.viewport_size();
-                    let scale = scale_override.unwrap_or_else(|| window.scale_factor());
-                    let (width, height) = (f32::from(size.width), f32::from(size.height));
-                    let bounds = window.bounds();
-                    let origin = (
-                        f32::from(bounds.origin.x),
-                        f32::from(bounds.origin.y),
-                    );
-                    #[cfg(target_os = "linux")]
-                    let frame_changed = crate::desktop::window_frame::sync(window, APP_SURFACE_ID);
-                    #[cfg(not(target_os = "linux"))]
-                    let frame_changed = false;
-                    let previous = last_surface_size.get();
-                    let resized = frame_changed
-                        || (previous.0 - width).abs() > 0.01
-                        || (previous.1 - height).abs() > 0.01
-                        || (previous.2 - scale).abs() > 0.001;
-                    let moved = (previous.3 - origin.0).abs() > 0.01
-                        || (previous.4 - origin.1).abs() > 0.01;
-                    let top = crate::desktop::windows::top_inset(
-                        window,
-                        crate::desktop::windows::MAIN_WINDOW_KEY,
-                    );
-                    let inset_changed = cx
-                        .try_global::<StoreGlobal>()
-                        .is_some_and(|global| (global.0.read(cx).top_inset - top).abs() > 0.01);
-                    if !resized && !moved && !inset_changed {
-                        return;
-                    }
-                    last_surface_size.set((width, height, scale, origin.0, origin.1));
-                    save_window_bounds(&window_state_path, bounds, size);
-                    if inset_changed {
-                        crate::desktop::window_mirror::patch(
+                crate::app_hooks::observer_context_joined(cx, |observers| {
+                    observers.observe_window_bounds(window, move |_root, window, cx| {
+                        // GPUI calls bounds observers on every resize notification and layout, so
+                        // nothing here may write to disk or log unless a value changed.
+                        let size = window.viewport_size();
+                        let scale = scale_override.unwrap_or_else(|| window.scale_factor());
+                        let (width, height) = (f32::from(size.width), f32::from(size.height));
+                        let bounds = window.bounds();
+                        let origin = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+                        #[cfg(target_os = "linux")]
+                        let frame_changed =
+                            crate::desktop::window_frame::sync(window, APP_SURFACE_ID);
+                        #[cfg(not(target_os = "linux"))]
+                        let frame_changed = false;
+                        let previous = last_surface_size.get();
+                        let resized = frame_changed
+                            || (previous.0 - width).abs() > 0.01
+                            || (previous.1 - height).abs() > 0.01
+                            || (previous.2 - scale).abs() > 0.001;
+                        let moved = (previous.3 - origin.0).abs() > 0.01
+                            || (previous.4 - origin.1).abs() > 0.01;
+                        let top = crate::desktop::windows::top_inset(
+                            window,
                             crate::desktop::windows::MAIN_WINDOW_KEY,
-                            &[("topInset", serde_json::json!(top))],
                         );
-                        store.update(cx, |store, _cx| {
-                            store.top_inset = top;
-                            store.host.set_window_top_inset(top);
-                            store.frame_hook.arm(window);
-                        });
-                        // Deferred: this observer runs with the window's root view
-                        // borrowed, and refreshing the surface reads it. A compositor
-                        // that settles the decorations after the window opens (sway)
-                        // changes the inset right here.
-                        let deferred_store = store.clone();
-                        cx.defer(move |cx| {
-                            deferred_store.update(cx, |store, cx| {
-                                for node in store.nodes.values() {
-                                    let component = node.read(cx).component.clone();
-                                    let depends = crate::extensions::component_renderer(&component)
-                                        .is_some_and(|renderer| {
-                                            renderer.depends_on_window_insets()
-                                        });
-                                    if depends {
-                                        node.update(cx, |_, cx| cx.notify());
-                                    }
-                                }
-                                store.refresh_inherited(1, cx);
+                        let inset_changed = cx
+                            .try_global::<StoreGlobal>()
+                            .is_some_and(|global| (global.0.read(cx).top_inset - top).abs() > 0.01);
+                        if !resized && !moved && !inset_changed {
+                            return;
+                        }
+                        last_surface_size.set((width, height, scale, origin.0, origin.1));
+                        save_window_bounds(&window_state_path, bounds, size);
+                        if inset_changed {
+                            crate::desktop::window_mirror::patch(
+                                crate::desktop::windows::MAIN_WINDOW_KEY,
+                                &[("topInset", serde_json::json!(top))],
+                            );
+                            store.update(cx, |store, _cx| {
+                                store.top_inset = top;
+                                store.host.set_window_top_inset(top);
+                                store.frame_hook.arm(window);
                             });
-                        });
-                        log::info!(
-                            "[window-inset] native window top inset={top} fullscreen={}",
-                            window.is_fullscreen()
-                        );
-                    }
-                    if resized {
-                        log::info!("window resized to {width}x{height}@{scale}x");
-                        let handle: gpui::AnyWindowHandle = window.window_handle().into();
-                        store.update(cx, |store, cx| {
-                            store.resize_window(handle, width, height, scale, cx)
-                        });
-                        frame_hook.arm(window);
-                    }
-                }))
+                            // Deferred: this observer runs with the window's root view
+                            // borrowed, and refreshing the surface reads it. A compositor
+                            // that settles the decorations after the window opens (sway)
+                            // changes the inset right here.
+                            let deferred_store = store.clone();
+                            cx.defer(move |cx| {
+                                deferred_store.update(cx, |store, cx| {
+                                    for node in store.nodes.values() {
+                                        let component = node.read(cx).component.clone();
+                                        let depends =
+                                            crate::extensions::component_renderer(&component)
+                                                .is_some_and(|renderer| {
+                                                    renderer.depends_on_window_insets()
+                                                });
+                                        if depends {
+                                            node.update(cx, |_, cx| cx.notify());
+                                        }
+                                    }
+                                    store.refresh_inherited(1, cx);
+                                });
+                            });
+                            log::info!(
+                                "[window-inset] native window top inset={top} fullscreen={}",
+                                window.is_fullscreen()
+                            );
+                        }
+                        if resized {
+                            log::info!("window resized to {width}x{height}@{scale}x");
+                            let handle: gpui::AnyWindowHandle = window.window_handle().into();
+                            store.update(cx, |store, cx| {
+                                store.resize_window(handle, width, height, scale, cx)
+                            });
+                            frame_hook.arm(window);
+                        }
+                    })
+                })
             })
             .expect("failed to observe the window's bounds");
         // Windows only: its caption buttons and the title bar's double click maximize
@@ -2795,14 +2775,76 @@ pub fn run_with(mut config: DesktopAppConfig) {
         // A background run (the test driver, or `RN_GPUI_BACKGROUND=1`) never
         // activates the app: it must not take focus or the menu bar, or pull
         // the person to the desktop it launched on.
-        if crate::desktop::background::enabled() {
+        if test_headless {
+            // No application to activate or keep out of the Dock.
+        } else if crate::desktop::background::enabled() {
             #[cfg(target_os = "macos")]
             run_as_accessory_app();
         } else {
             cx.activate(true);
         }
         log::info!("waiting for mount batches");
+    };
+    let http_client = std::sync::Arc::new(crate::http_client::RnHttpClient::new());
+    match application {
+        Some(application) => application.with_http_client(http_client).run(launch),
+        #[cfg(feature = "test-driver")]
+        None => crate::headless::run(http_client, launch),
+        #[cfg(not(feature = "test-driver"))]
+        None => unreachable!("headless runs need the test-driver feature"),
+    }
+}
+
+/// The real platform's application: AppKit, X11/Wayland or Win32.
+fn platform_application() -> Application {
+    #[cfg(feature = "visual-capture")]
+    let headless = env_bool("RN_GPUI_HEADLESS", false);
+    #[cfg(not(feature = "visual-capture"))]
+    let headless = false;
+    startup_trace(if headless {
+        "using GPUI headless platform"
+    } else {
+        "using GPUI AppKit platform"
     });
+    let platform = gpui_platform::current_platform(headless);
+    startup_trace("platform created");
+    // A locked or absent session on macOS cannot launch AppKit, and the platform
+    // reports no display until it can. Nothing else does: on Linux GPUI starts on
+    // a placeholder connection and attaches X11 or Wayland once the app runs, so
+    // its display list is legitimately empty here — waiting for it never ends.
+    #[cfg(target_os = "macos")]
+    {
+        let mut waited_for_display = 0u64;
+        while platform.displays().is_empty() {
+            if waited_for_display == 0 {
+                log::warn!("no active display; waiting before entering AppKit launch");
+                startup_trace("waiting for an active display");
+            }
+            std::thread::sleep(Duration::from_secs(2));
+            waited_for_display += 2;
+            if waited_for_display % 30 == 0 {
+                log::warn!("still waiting for an active display ({waited_for_display}s)");
+            }
+        }
+    }
+    startup_trace("active display detected");
+    let application =
+        crate::app_hooks::with_registered_assets(Application::with_platform(platform));
+    // An accessory app takes no Dock icon or menu bar, and the policy has to
+    // be set before the run loop starts or the Dock bounces at launch.
+    #[cfg(target_os = "macos")]
+    let application = if crate::desktop::background::enabled() {
+        application.with_windowing(gpui::WindowingRequest::Headless)
+    } else {
+        application
+    };
+    application.on_reopen(crate::desktop::windows::reopen);
+    application.on_open_urls(|urls| {
+        for url in urls {
+            crate::desktop::deep_link::handle_url(url);
+        }
+    });
+    application
 }
 
 #[cfg(feature = "visual-capture")]

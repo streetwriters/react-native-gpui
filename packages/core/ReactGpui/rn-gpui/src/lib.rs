@@ -12,6 +12,8 @@ pub(crate) mod file_drop;
 mod filter;
 pub(crate) mod frame;
 pub(crate) mod gradient;
+#[cfg(feature = "test-driver")]
+mod headless;
 pub(crate) mod host;
 pub mod host_component;
 pub(crate) mod image_loader;
