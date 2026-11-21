@@ -1548,43 +1548,49 @@ async fn serve_commands(
                             .map(|frame| (frame, window_offset(store, tag, cx)))
                     })
                 });
+                let capture_started = Instant::now();
+                // An element is drawn as its own device-pixel region of the
+                // frame, not as the whole frame cropped afterwards.
                 let captured = cx.update_window(window, |_root, window, app| {
                     draw_frame(window, app);
-                    window.render_to_image()
+                    match frame {
+                        Some((frame, offset)) => {
+                            let size = window.viewport_size();
+                            let (width, height) = (
+                                (f32::from(size.width) * scale).round() as i32,
+                                (f32::from(size.height) * scale).round() as i32,
+                            );
+                            match device_region(frame, offset, scale, width, height) {
+                                Some((x, y, w, h)) => window
+                                    .render_region_to_image(gpui::Bounds {
+                                        origin: point(
+                                            gpui::DevicePixels(x),
+                                            gpui::DevicePixels(y),
+                                        ),
+                                        size: gpui::size(
+                                            gpui::DevicePixels(w),
+                                            gpui::DevicePixels(h),
+                                        ),
+                                    })
+                                    .map(Some),
+                                None => Ok(None),
+                            }
+                        }
+                        None => window.render_to_image().map(Some),
+                    }
                 });
+                if std::env::var_os("RN_GPUI_TEST_SCREENSHOT_TIMING").is_some() {
+                    eprintln!(
+                        "[rn-gpui-test] screenshot tag={:?} capture_ms={:.1}",
+                        tag,
+                        capture_started.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
                 match captured {
                     Ok(Ok(image)) => {
                         if tag.is_some() && frame.is_none() {
                             json!({"error": "screenshot target is not mounted or visible"})
                         } else {
-                            let image = if let Some((frame, offset)) = frame {
-                                let (image_width, image_height) = image.dimensions();
-                                let x = (frame.x * scale).floor().max(0.0) as u32;
-                                let y =
-                                    ((frame.y + offset) * scale).floor().max(0.0) as u32;
-                                let right = ((frame.x + frame.w) * scale).ceil().max(0.0) as u32;
-                                let bottom = ((frame.y + offset + frame.h) * scale)
-                                    .ceil()
-                                    .max(0.0) as u32;
-                                let right = right.min(image_width);
-                                let bottom = bottom.min(image_height);
-                                if x >= right || y >= bottom {
-                                    None
-                                } else {
-                                    Some(
-                                        image::imageops::crop_imm(
-                                            &image,
-                                            x,
-                                            y,
-                                            right - x,
-                                            bottom - y,
-                                        )
-                                        .to_image(),
-                                    )
-                                }
-                            } else {
-                                Some(image)
-                            };
                             match image {
                                 None => json!({"error": "screenshot target has no visible pixels"}),
                                 Some(image) => match image.save(&path) {
@@ -2735,9 +2741,52 @@ fn get_props(store: &ViewStore, params: &Value, cx: &gpui::Context<ViewStore>) -
         "frame": node_frame(store, tag, cx).map(|frame| json!({"x":frame.x,"y":frame.y,"width":frame.w,"height":frame.h}))})
 }
 
+/// The whole device pixels (x, y, width, height) an element's `frame`, shifted
+/// down by `offset`, covers in a window of `width` x `height` device pixels, or
+/// `None` when none are inside it.
+fn device_region(
+    frame: RectF,
+    offset: f32,
+    scale: f32,
+    width: i32,
+    height: i32,
+) -> Option<(i32, i32, i32, i32)> {
+    let (width, height) = (width.max(0) as u32, height.max(0) as u32);
+    let x = ((frame.x * scale).floor().max(0.0) as u32).min(width);
+    let y = (((frame.y + offset) * scale).floor().max(0.0) as u32).min(height);
+    let right = (((frame.x + frame.w) * scale).ceil().max(0.0) as u32).min(width);
+    let bottom = (((frame.y + offset + frame.h) * scale).ceil().max(0.0) as u32).min(height);
+    if x >= right || y >= bottom {
+        return None;
+    }
+    Some((x as i32, y as i32, (right - x) as i32, (bottom - y) as i32))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{intersect, matches_query, RectF};
+    use super::{device_region, intersect, matches_query, RectF};
+
+    #[test]
+    fn device_region_scales_to_whole_device_pixels_and_clamps() {
+        let frame = RectF {
+            x: 10.25,
+            y: 4.0,
+            w: 20.0,
+            h: 10.5,
+        };
+        // 2x: x 20.5 -> 20, right 60.5 -> 61; y (4 + 1) * 2 = 10, bottom 31
+        assert_eq!(
+            device_region(frame, 1.0, 2.0, 200, 100),
+            Some((20, 10, 41, 21))
+        );
+        // Clamped to the window.
+        assert_eq!(
+            device_region(frame, 0.0, 2.0, 30, 100),
+            Some((20, 8, 10, 21))
+        );
+        // Outside it.
+        assert_eq!(device_region(frame, 0.0, 2.0, 10, 100), None);
+    }
 
     #[test]
     fn query_matching_supports_exact_and_substring_modes() {

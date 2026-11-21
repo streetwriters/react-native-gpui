@@ -4,6 +4,8 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- gpui-fast is pinned to `1ad3cc3`. The test driver's `screenshot` of an element draws only that element's device-pixel region (`Window::render_region_to_image`) instead of the whole frame cropped afterwards, which makes headless captures of small elements faster. `RN_GPUI_TEST_SCREENSHOT_TIMING=1` makes the driver log each capture's time on stderr.
+
 - Experimental: with `RN_GPUI_TEST_HEADLESS=1`, a `test-driver` build runs on GPUI's test platform instead of AppKit, X11/Wayland or Win32, with the same bundle, bootstrap and driver socket. No window, display or window server is used, and `screenshot` draws the scene offscreen with Metal where a GPU is available and on the CPU (tiny-skia) where it is not, or always with `GPUI_TEST_RENDERER=cpu`. It runs inside a macOS sandbox that has no window server. The CPU renderer does not draw effect groups (group opacity, blur and drop-shadow filters), blend modes, masks or native views, and shell features (menus, Dock menu, tray, system clipboard, window activation and states, the accessibility tree, displays) are not available; see `docs/desktop-testing.md`. Needs gpui-fast `de5ebfa`.
 - On Windows, the Loom runtime no longer fails to compile with `Cannot open include file: 'unistd.h'`: Loom's `LoomBindingInternals.h` includes it and calls nothing from it, so the Loom header variants carry an MSVC stand-in that forwards to the real header everywhere else.
 - On Windows, the Loom renderer extracts its downloaded archive with the tar that ships with the OS, so a build from a Git Bash session no longer fails with `tar: Cannot connect to C: resolve failed`.
