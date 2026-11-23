@@ -448,6 +448,7 @@ jobs:
             npm run autolink
 
       - name: Rust tests
+        if: runner.os != 'Windows'
         env:
           RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
           # Cargo reads `.cargo/config.toml` from the current directory upwards,
@@ -463,6 +464,27 @@ jobs:
         run: |
           node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "rust tests" -- \
             npm run test:rust
+      # PowerShell, not Git Bash, as in the prebuilt workflow: when the C++
+      # inputs changed, this step builds OpenSSL from source, and its Configure
+      # reported "NASM not found" from Git Bash.
+      - name: Rust tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RN_GPUI_PREBUILT_CACHE: ${{ runner.temp }}/rn-gpui-prebuilt
+          # Cargo reads `.cargo/config.toml` from the current directory upwards,
+          # and run-rust-tests.mjs runs from the repository root, so the tester's
+          # own `[env]` block does not apply here. Without these, build.rs falls
+          # back to `<repo root>/desktop/autolink/`, which does not exist, CMake
+          # never configures an app provider, and the rn-gpui-sys test binary
+          # fails to link rn_gpui_register_app_components and
+          # rn_gpui_accessibility_active on every OS. run-rust-tests.mjs sets
+          # them itself on Windows only, which is reported as a product bug.
+          RN_GPUI_AUTOLINK_MANIFEST: ${{ github.workspace }}/packages/rn-gpui-tester/desktop/autolink/autolink.json
+          RN_GPUI_AUTOLINK_CMAKE: ${{ github.workspace }}/packages/rn-gpui-tester/desktop/autolink/autolink.cmake
+        run: |
+          node scripts/ci/step.mjs --job native-${{ matrix.os }} --name "rust tests" -- npm run test:rust
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # A test binary that cannot start exits 0xC0000135 and says nothing
       # about which DLL it was missing.
       - name: Find the DLL a Windows test binary is missing

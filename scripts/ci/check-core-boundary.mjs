@@ -46,6 +46,7 @@ export const ALLOW_LIST = [
   { name: 'RN_GPUI_SCREENSHOT' },
   { name: 'RN_GPUI_SCREENSHOT_DELAY_MS' },
   { name: 'RN_GPUI_SCREENSHOTS' },
+  { name: 'RN_GPUI_TEST_SCREENSHOT_TIMING' },
   {
     name: 'svg',
     line: /["']svg["']|svg\+xml|ImageFormat::Svg|\.svg|<svg|SVG data URI/u,
