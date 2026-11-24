@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- On Windows, C sources compiled with the runtime's preinclude header (lexbor, for one) no longer fail with `STL1003`: `msvc-preinclude.h` carries its standard-library includes only for C++. The header is an input of the prebuilt runtime, so the next release has a new prebuilt.
 - gpui-fast is pinned to `1ad3cc3`. The test driver's `screenshot` of an element draws only that element's device-pixel region (`Window::render_region_to_image`) instead of the whole frame cropped afterwards, which makes headless captures of small elements faster. `RN_GPUI_TEST_SCREENSHOT_TIMING=1` makes the driver log each capture's time on stderr.
 
 - Experimental: with `RN_GPUI_TEST_HEADLESS=1`, a `test-driver` build runs on GPUI's test platform instead of AppKit, X11/Wayland or Win32, with the same bundle, bootstrap and driver socket. No window, display or window server is used, and `screenshot` draws the scene offscreen with Metal where a GPU is available and on the CPU (tiny-skia) where it is not, or always with `GPUI_TEST_RENDERER=cpu`. It runs inside a macOS sandbox that has no window server. The CPU renderer does not draw effect groups (group opacity, blur and drop-shadow filters), blend modes, masks or native views, and shell features (menus, Dock menu, tray, system clipboard, window activation and states, the accessibility tree, displays) are not available; see `docs/desktop-testing.md`. Needs gpui-fast `de5ebfa`.
