@@ -833,6 +833,7 @@ async fn serve_commands(
                         let kind = method.to_owned();
                         let dx = params.get("dx").and_then(Value::as_f64).unwrap_or(0.0) as f32;
                         let dy = params.get("dy").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                        let phased = params.get("phase").is_some();
                         let touch_phase = match params.get("phase").and_then(Value::as_str) {
                             Some("started") => gpui::TouchPhase::Started,
                             Some("ended") => gpui::TouchPhase::Ended,
@@ -912,6 +913,27 @@ async fn serve_commands(
                             Some((true, _)) => cx
                                 .update_window(window, |_root, window, app| {
                                     draw_frame(window, app);
+                                    if kind == "scroll" && !phased {
+                                        // A wheel tick within the latching window of the
+                                        // last one belongs to its sequence and stays with
+                                        // its container. Each driver scroll is a separate
+                                        // gesture, so a tick of the other delta kind that
+                                        // moves nothing ends that sequence first.
+                                        window.dispatch_event(
+                                            gpui::PlatformInput::Scroll(gpui::ScrollEvent {
+                                                position,
+                                                delta: if lines {
+                                                    gpui::ScrollDelta::Pixels(point(px(0.0), px(0.0)))
+                                                } else {
+                                                    gpui::ScrollDelta::Lines(point(0.0, 0.0))
+                                                },
+                                                modifiers,
+                                                touch_phase,
+                                                ..Default::default()
+                                            }),
+                                            app,
+                                        );
+                                    }
                                     window.dispatch_event(
                                         gpui::PlatformInput::Scroll(gpui::ScrollEvent {
                                             position,
