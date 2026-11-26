@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PREBUILT_RENDERERS } from './prebuilt-renderers.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(scriptDir, '..');
@@ -32,18 +33,22 @@ if (hashRun.status !== 0) {
 }
 const current = hashRun.stdout.trim();
 
-const loomRun = spawnSync(
-  process.execPath,
-  [path.join(scriptDir, 'prebuilt-inputs.mjs'), '--renderer', 'loom'],
-  { encoding: 'utf8' },
-);
-if (loomRun.status !== 0) {
-  console.error(
-    `check-prebuilt-pin: cannot compute the Loom input hash\n${loomRun.stderr}`,
+const loomPrebuilt = PREBUILT_RENDERERS.includes('loom');
+let currentLoom = '';
+if (loomPrebuilt) {
+  const loomRun = spawnSync(
+    process.execPath,
+    [path.join(scriptDir, 'prebuilt-inputs.mjs'), '--renderer', 'loom'],
+    { encoding: 'utf8' },
   );
-  process.exit(1);
+  if (loomRun.status !== 0) {
+    console.error(
+      `check-prebuilt-pin: cannot compute the Loom input hash\n${loomRun.stderr}`,
+    );
+    process.exit(1);
+  }
+  currentLoom = loomRun.stdout.trim();
 }
-const currentLoom = loomRun.stdout.trim();
 
 const problems = [];
 if (pin.inputHash !== current) {
@@ -54,12 +59,15 @@ if (pin.inputHash !== current) {
 if (!pin.assets || Object.keys(pin.assets).length === 0) {
   problems.push('pin lists no prebuilt assets');
 }
-if (pin.loom?.inputHash !== currentLoom) {
+if (loomPrebuilt && pin.loom?.inputHash !== currentLoom) {
   problems.push(
     `pin loom.inputHash ${pin.loom?.inputHash || '(empty)'} does not match the current Loom C++ inputs ${currentLoom}`,
   );
 }
-if (!pin.loom?.assets || Object.keys(pin.loom.assets).length === 0) {
+if (
+  loomPrebuilt &&
+  (!pin.loom?.assets || Object.keys(pin.loom.assets).length === 0)
+) {
   problems.push('pin lists no Loom prebuilt assets');
 }
 

@@ -4,6 +4,7 @@ All notable changes to `@react-native-gpui/core` are listed here. Each version's
 
 ## Unreleased
 
+- The prebuilt runtime is published for Fabric only for now. `scripts/prebuilt-renderers.mjs` lists the renderers the workflow builds and the pin check expects; an app that selects Loom builds it from source.
 - The test driver's `scroll` starts a new wheel sequence each time it is called without a phase. gpui-fast latches wheel ticks less than 500 ms apart to the container the first one went to, so a second scroll sent straight after the first, at the same point, no longer stays on the first container.
 - On Windows, C sources compiled with the runtime's preinclude header (lexbor, for one) no longer fail with `STL1003`: `msvc-preinclude.h` carries its standard-library includes only for C++. The header is an input of the prebuilt runtime, so the next release has a new prebuilt.
 - gpui-fast is pinned to `1ad3cc3`. The test driver's `screenshot` of an element draws only that element's device-pixel region (`Window::render_region_to_image`) instead of the whole frame cropped afterwards, which makes headless captures of small elements faster. `RN_GPUI_TEST_SCREENSHOT_TIMING=1` makes the driver log each capture's time on stderr.

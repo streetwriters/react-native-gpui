@@ -55,6 +55,7 @@
     "scripts/generate-prebuilt-inputs.mjs",
     "scripts/check-standalone-cmake.mjs",
     "scripts/check-prebuilt-pin.mjs",
+    "scripts/prebuilt-renderers.mjs",
     "scripts/check-loom-overrides.mjs",
     "ReactGpui/rn-gpui-module/Cargo.toml",
     "ReactGpui/rn-gpui-module/src",

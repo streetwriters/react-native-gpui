@@ -55,6 +55,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       input_hash: ${{ steps.plan.outputs.input_hash }}
       loom_input_hash: ${{ steps.plan.outputs.loom_input_hash }}
+      renderers: ${{ steps.plan.outputs.renderers }}
       tag: ${{ steps.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
@@ -72,14 +73,21 @@ jobs:
           set -euo pipefail
           pkg=packages/core
           hash="$(node "$pkg/scripts/prebuilt-inputs.mjs")"
-          loom_hash="$(node "$pkg/scripts/prebuilt-inputs.mjs" --renderer loom)"
+          renderers="$(node --input-type=module -e "import { PREBUILT_RENDERERS } from './$pkg/scripts/prebuilt-renderers.mjs'; console.log(JSON.stringify(PREBUILT_RENDERERS))")"
+          echo "renderers=$renderers" >> "$GITHUB_OUTPUT"
+          loom_hash=""
+          pin_loom_hash=""
+          case "$renderers" in
+            *'"loom"'*) loom_hash="$(node "$pkg/scripts/prebuilt-inputs.mjs" --renderer loom)" ;;
+          esac
           node_tree_rn="$(node -p "require('react-native/package.json').version")"
-          read -r pin_version pin_hash pin_loom_hash pin_rn < <(node -e '
+          read -r pin_version pin_hash pin_loom_pinned pin_rn < <(node -e '
             const pin = require("./'"$pkg"'/prebuilt-binaries.json");
             console.log(pin.version, pin.inputHash, pin.loom?.inputHash ?? "none", pin.reactNative ?? "");
           ')
-          # One release carries the Fabric and the Loom archives; either hash
-          # changing publishes both.
+          if [ -n "$loom_hash" ]; then pin_loom_hash="$pin_loom_pinned"; fi
+          # One release carries the archives of every renderer in
+          # prebuilt-renderers.mjs; any of their hashes changing publishes all.
           if [ "$hash" = "$pin_hash" ] && [ "$loom_hash" = "$pin_loom_hash" ] && [ "$FORCE" != "true" ] && [ "$EVENT" != "pull_request" ]; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
             echo "Input hash $hash matches the pin; nothing to build."
@@ -123,7 +131,7 @@ jobs:
             linux-x64,
             linux-arm64,
           ]
-        renderer: [fabric, loom]
+        renderer: ${{ fromJSON(needs.plan.outputs.renderers) }}
         include:
           - platform: darwin-arm64
             # macos-14's Xcode 15 finds Boost.Beast's async_teardown ambiguous.
@@ -451,7 +459,7 @@ jobs:
           set -euo pipefail
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
             --title "@react-native-gpui/prebuilt-binaries $VERSION" \
-            --notes "Prebuilt C++ runtime for react-native-gpui: Fabric (input hash $INPUT_HASH) and Loom (input hash $LOOM_INPUT_HASH)."
+            --notes "Prebuilt C++ runtime for react-native-gpui (input hash $INPUT_HASH${LOOM_INPUT_HASH:+, Loom input hash $LOOM_INPUT_HASH})."
       - name: Upload every asset
         working-directory: artifacts
         run: |
@@ -486,4 +494,4 @@ jobs:
           git push origin "$branch"
           gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
             --title "chore(react-native-gpui): pin prebuilt runtime $VERSION" \
-            --body "Pins the prebuilt runtime published as $TAG (Fabric input hash $INPUT_HASH, Loom input hash $LOOM_INPUT_HASH)."
+            --body "Pins the prebuilt runtime published as $TAG (input hash $INPUT_HASH${LOOM_INPUT_HASH:+, Loom input hash $LOOM_INPUT_HASH})."
