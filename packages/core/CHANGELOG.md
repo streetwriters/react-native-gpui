@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.5 - 2026-11-26
 
 - The prebuilt runtime is published for Fabric only for now. `scripts/prebuilt-renderers.mjs` lists the renderers the workflow builds and the pin check expects; an app that selects Loom builds it from source.
 - The test driver's `scroll` starts a new wheel sequence each time it is called without a phase. gpui-fast latches wheel ticks less than 500 ms apart to the container the first one went to, so a second scroll sent straight after the first, at the same point, no longer stays on the first container.

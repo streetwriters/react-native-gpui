@@ -1,6 +1,6 @@
 {
   "name": "@react-native-gpui/cli",
-  "version": "0.87.0-alpha.4",
+  "version": "0.87.0-alpha.5",
   "description": "React Native CLI integration and project scaffolding for the React Native desktop platform.",
   "license": "MIT",
   "repository": {

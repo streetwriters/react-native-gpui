@@ -2,7 +2,7 @@
 
 All notable changes to `@react-native-gpui/cli` are listed here. Each version's section becomes the notes of its GitHub release.
 
-## Unreleased
+## 0.87.0-alpha.5 - 2026-11-26
 
 - With the Loom renderer, the build downloads the Loom prebuilt runtime before Cargo runs, as it does for Fabric, and `project.desktop.prebuilt` `always` no longer fails for Loom. `package-desktop` finds the shared libraries of a Loom build, whose CMake folder is named `-loom` or `-loom-prebuilt`.
 - `--js-thread` and `jsThread` choose where JavaScript runs with Loom for the build; the app no longer reads `RN_GPUI_JS_THREAD` at launch.
