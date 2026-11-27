@@ -32,6 +32,7 @@ These libraries work on desktop with their own JavaScript API unchanged. Install
 | `@react-native-documents/picker`            | `@react-native-gpui/documents-picker`    | `11.0.x`                                                       |
 | `react-native-keychain`                     | `@react-native-gpui/keychain`            | `11.0.x`                                                       |
 | `react-native-webview`                      | `@react-native-gpui/webview`             | `13.16.x`                                                      |
+| GPUI Kit (`gpui-component`)                 | `@react-native-gpui/gpui-kit`            | `0.0.1-alpha.1`, the kit's components as React components      |
 
 ## Libraries with desktop support built in
 
@@ -46,7 +47,7 @@ These libraries ship their desktop implementation themselves, so there is no sep
 | `@ammarahmed/react-native-eventsource` | `1.2.0` and later         | Server-Sent Events (`EventSource`)                                                                       |
 | `react-native-gzip`                    | `1.2.1` and later         | gzip compression and decompression of strings                                                            |
 
-The desktop packages, and the desktop-only modules that have no upstream library (a Node-shaped file system API, custom font loading, notifications, a PDF viewer and others), live in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules), each with its own README and documentation.
+The desktop packages, and the desktop-only modules that have no upstream library (`crypto`, `fonts`, `fs`, `image-manipulator`, `notifications`, `openpgp`, `pdf`, `spellcheck`, `system`, `updater` and `webauthn`, all under `@react-native-gpui/`), live in [react-native-gpui-modules](https://github.com/streetwriters/react-native-gpui-modules), each with its own README and documentation.
 
 ## Installing
 
