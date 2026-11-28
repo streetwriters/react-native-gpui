@@ -2,6 +2,10 @@
 
 All notable changes to `@react-native-gpui/core` are listed here. Each version's section becomes the notes of its GitHub release.
 
+## Unreleased
+
+- `rn-gpui` sets gpui-fast's renamed style field `fast_overflow_clips_corners` (it was `overflow_clips_corners`) to clip a view's children to its rounded corners; the `Styled::overflow_clips_corners()` method is unchanged. gpui-fast is pinned to `f8229b9`, which has the rename and keeps its changes to upstream GPUI's files small (`script/check-upstream` passes). The pin is in `Cargo.lock`, a prebuilt hash input, so the next release has a new prebuilt.
+
 ## 0.87.0-alpha.5 - 2026-11-26
 
 - The prebuilt runtime is published for Fabric only for now. `scripts/prebuilt-renderers.mjs` lists the renderers the workflow builds and the pin check expects; an app that selects Loom builds it from source.
